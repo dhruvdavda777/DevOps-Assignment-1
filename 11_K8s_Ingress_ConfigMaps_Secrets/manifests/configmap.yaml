@@ -1,0 +1,26 @@
+# Two styles in one object:
+#  - simple key/value pairs, injected as environment variables
+#  - a whole file (index.html), mounted as a volume
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: app-config
+data:
+  APP_OWNER: "Dhruv Davda"
+  APP_ROLL: "24BCS10203"
+  APP_GROUP: "A"
+  APP_ENV: "development"
+  LOG_LEVEL: "debug"
+
+  # A multi-line value behaves as a file when mounted.
+  index.html: |
+    <!DOCTYPE html>
+    <html lang="en">
+    <head><meta charset="utf-8"><title>Frontend - Ingress demo</title></head>
+    <body style="font-family: system-ui, sans-serif; text-align:center; padding-top:60px;">
+      <h1>Frontend served through Ingress</h1>
+      <p>Dhruv Davda &middot; 24BCS10203 &middot; Group A</p>
+      <p>This page came from a ConfigMap mounted as a volume.</p>
+      <p><a href="/api/">go to /api/ (routed to the backend)</a></p>
+    </body>
+    </html>

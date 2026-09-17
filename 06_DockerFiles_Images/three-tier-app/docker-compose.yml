@@ -1,0 +1,43 @@
+# Three tiers, three different kinds of application, one network.
+#
+#   web  - nginx serving static files and reverse-proxying /api   (published)
+#   api  - Flask JSON API, stateless                              (internal only)
+#   db   - PostgreSQL, the only stateful component                (internal only)
+#
+# Dhruv Davda - 24BCS10203
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: dhruv
+      POSTGRES_PASSWORD: devops_assignment
+      POSTGRES_DB: visits
+    volumes:
+      # Named volume, so the row count survives "docker compose down".
+      - db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dhruv -d visits"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+    # No ports: the database is not reachable from the host at all.
+
+  api:
+    build: ./api
+    environment:
+      DATABASE_URL: postgresql://dhruv:devops_assignment@db:5432/visits
+    depends_on:
+      db:
+        condition: service_healthy
+    # Also no ports: only nginx needs to reach it.
+
+  web:
+    build: ./web
+    ports:
+      - "8090:80"
+    depends_on:
+      - api
+
+volumes:
+  db_data:

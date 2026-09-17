@@ -1,0 +1,17 @@
+# macOS
+.DS_Store
+
+# Editor
+.vscode/
+.idea/
+
+# Node
+node_modules/
+dist/
+
+# Python
+__pycache__/
+*.pyc
+
+# The class repository is cloned locally for the Topic 06 build, not vendored.
+06_DockerFiles_Images/devops-heros/

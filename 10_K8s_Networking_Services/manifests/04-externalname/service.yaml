@@ -1,0 +1,9 @@
+# ExternalName is pure DNS: it returns a CNAME and has no ClusterIP, no
+# selector and no proxying. Useful for pointing at a managed service.
+apiVersion: v1
+kind: Service
+metadata:
+  name: external-api
+spec:
+  type: ExternalName
+  externalName: api.github.com

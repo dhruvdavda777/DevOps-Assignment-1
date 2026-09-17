@@ -1,0 +1,29 @@
+# A ReplicaSet keeps exactly "replicas" matching Pods alive at all times.
+apiVersion: apps/v1
+kind: ReplicaSet
+metadata:
+  name: web-rs
+  labels:
+    app: web-rs
+spec:
+  replicas: 3
+  # The selector is how the ReplicaSet finds the Pods it owns. It MUST match
+  # the labels in the template, or the controller creates Pods forever.
+  selector:
+    matchLabels:
+      app: web-rs
+  template:
+    metadata:
+      labels:
+        app: web-rs
+        owner: dhruv
+    spec:
+      containers:
+        - name: web
+          image: nginx:1.27-alpine
+          ports:
+            - containerPort: 80
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi

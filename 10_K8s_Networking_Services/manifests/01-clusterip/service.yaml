@@ -1,0 +1,14 @@
+# ClusterIP is the default type: a stable virtual IP reachable only inside the
+# cluster. This is the building block every other Service type extends.
+apiVersion: v1
+kind: Service
+metadata:
+  name: whoami-clusterip
+spec:
+  type: ClusterIP
+  selector:
+    app: whoami        # matches Pod labels, NOT the Deployment name
+  ports:
+    - name: http
+      port: 80         # the port the Service listens on
+      targetPort: 80   # the port on the Pod

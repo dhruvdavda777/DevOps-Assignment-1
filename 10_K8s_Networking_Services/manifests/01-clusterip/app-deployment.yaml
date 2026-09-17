@@ -1,0 +1,48 @@
+# nginx configured to return its own Pod name, so I can see load balancing
+# actually distributing requests across Pods.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: whoami-conf
+data:
+  default.conf: |
+    server {
+      listen 80;
+      location / {
+        # $hostname is the Pod name, injected by nginx at runtime.
+        return 200 "served by pod $hostname\n";
+        add_header Content-Type text/plain;
+      }
+    }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: whoami
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: whoami
+  template:
+    metadata:
+      labels:
+        app: whoami
+        owner: dhruv
+    spec:
+      containers:
+        - name: web
+          image: nginx:1.27-alpine
+          ports:
+            - containerPort: 80
+          volumeMounts:
+            - name: conf
+              mountPath: /etc/nginx/conf.d
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+      volumes:
+        - name: conf
+          configMap:
+            name: whoami-conf

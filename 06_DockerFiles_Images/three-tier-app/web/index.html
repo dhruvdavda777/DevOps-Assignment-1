@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Three tier app - Dhruv Davda</title>
+  <style>
+    body { font-family: system-ui, sans-serif; text-align: center; padding-top: 60px; color: #1a1a1a; }
+    .card { display: inline-block; border: 1px solid #ddd; border-radius: 10px; padding: 24px 40px; }
+    .count { font-size: 44px; font-weight: 700; margin: 12px 0; }
+    .muted { color: #666; font-size: 14px; }
+    code { background: #f4f4f4; padding: 2px 6px; border-radius: 4px; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>Three tier app on Docker</h1>
+    <p class="muted">Dhruv Davda &middot; 24BCS10203 &middot; Group A</p>
+    <div class="count" id="count">...</div>
+    <p class="muted">visits recorded in PostgreSQL</p>
+    <p class="muted">nginx &rarr; <code>/api/visit</code> &rarr; Flask &rarr; Postgres</p>
+    <p class="muted" id="db"></p>
+  </div>
+  <script>
+    // The browser only ever talks to nginx on port 8090. nginx proxies /api to
+    // the Flask container, so the API is never published to the host at all.
+    fetch('/api/visit')
+      .then(r => r.json())
+      .then(d => { document.getElementById('count').textContent = d.visits; })
+      .catch(e => { document.getElementById('count').textContent = 'error'; });
+
+    fetch('/api/health')
+      .then(r => r.json())
+      .then(d => { document.getElementById('db').textContent = d.database || d.status; });
+  </script>
+</body>
+</html>

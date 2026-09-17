@@ -1,0 +1,7 @@
+Process snapshot taken on 2026-09-17 15:05:10
+Host: 0c94443ea411
+
+UID        PID  PPID  C STIME TTY          TIME CMD
+root         1     0  0 15:05 ?        00:00:00 bash -c  apt-get update -qq >/dev/null 2>&1 && apt-get install -y -qq procps >/dev/null 2>&1 echo "\$ chmod +x sysinfo.sh" echo "\$ ./sysinfo.sh" ./sysinfo.sh echo "" echo "\$ ls -R system_info" ls -R system_info echo "" echo "\$ head -6 system_info/process.log" head -6 system_info/process.log 
+root       137     1  0 15:05 ?        00:00:00 /bin/bash ./sysinfo.sh
+root       164   137  0 15:05 ?        00:00:00 ps -ef

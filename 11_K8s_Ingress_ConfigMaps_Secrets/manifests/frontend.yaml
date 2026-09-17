@@ -1,0 +1,47 @@
+# Frontend: static nginx whose index.html comes from the ConfigMap volume.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: frontend
+  template:
+    metadata:
+      labels:
+        app: frontend
+        owner: dhruv
+    spec:
+      containers:
+        - name: web
+          image: nginx:1.27-alpine
+          ports:
+            - containerPort: 80
+          volumeMounts:
+            - name: page
+              mountPath: /usr/share/nginx/html
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+      volumes:
+        - name: page
+          configMap:
+            name: app-config
+            items:
+              # Mount only this one key, not every key in the ConfigMap.
+              - key: index.html
+                path: index.html
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend
+spec:
+  selector:
+    app: frontend
+  ports:
+    - port: 80
+      targetPort: 80

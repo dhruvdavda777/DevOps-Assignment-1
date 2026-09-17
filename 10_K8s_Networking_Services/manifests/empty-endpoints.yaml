@@ -1,0 +1,14 @@
+# Deliberately broken: the selector does not match any Pod's labels, so the
+# Service has a ClusterIP but zero endpoints. This is the single most common
+# Service bug in Kubernetes.
+apiVersion: v1
+kind: Service
+metadata:
+  name: broken-svc
+spec:
+  type: ClusterIP
+  selector:
+    app: whoami-typo      # the real label is app=whoami
+  ports:
+    - port: 80
+      targetPort: 80

@@ -1,0 +1,27 @@
+# A StatefulSet gives each Pod a STABLE, ordinal name (db-0, db-1) and starts
+# them in order - unlike a Deployment's random suffixes.
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: db
+spec:
+  serviceName: db-headless     # ties the StatefulSet to the headless Service
+  replicas: 3
+  selector:
+    matchLabels:
+      app: db
+  template:
+    metadata:
+      labels:
+        app: db
+        owner: dhruv
+    spec:
+      containers:
+        - name: web
+          image: nginx:1.27-alpine
+          ports:
+            - containerPort: 80
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi

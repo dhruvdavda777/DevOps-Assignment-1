@@ -1,0 +1,5 @@
+# Never copy the host's node_modules into the build context: it is large and may
+# contain binaries built for the wrong platform.
+node_modules
+dist
+npm-debug.log

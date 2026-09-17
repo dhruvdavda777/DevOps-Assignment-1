@@ -1,0 +1,110 @@
+# Backend: a tiny Python API that reports the config it was given, so I can
+# prove the ConfigMap and Secret actually reached the container.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: backend-code
+data:
+  app.py: |
+    import json
+    import os
+    import socket
+    from http.server import BaseHTTPRequestHandler, HTTPServer
+
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            secret = os.environ.get("DB_PASSWORD", "")
+            body = {
+                # Plain config, injected with envFrom from the ConfigMap.
+                "owner": os.environ.get("APP_OWNER"),
+                "roll": os.environ.get("APP_ROLL"),
+                "group": os.environ.get("APP_GROUP"),
+                "env": os.environ.get("APP_ENV"),
+                "log_level": os.environ.get("LOG_LEVEL"),
+                # Secrets: prove they arrived without printing them.
+                "db_username": os.environ.get("DB_USERNAME"),
+                "db_password_length": len(secret),
+                "db_password_masked": (secret[:2] + "*" * (len(secret) - 2)) if secret else None,
+                "api_token_present": bool(os.environ.get("API_TOKEN")),
+                # The file-mounted secret, read from disk instead of the env.
+                "secret_files": sorted(os.listdir("/etc/app-secret"))
+                                 if os.path.isdir("/etc/app-secret") else [],
+                "pod": socket.gethostname(),
+                "path": self.path,
+            }
+            data = json.dumps(body, indent=2).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+
+        def log_message(self, fmt, *args):
+            print("%s - %s" % (self.address_string(), fmt % args), flush=True)
+
+
+    HTTPServer(("0.0.0.0", 8000), Handler).serve_forever()
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: backend
+  template:
+    metadata:
+      labels:
+        app: backend
+        owner: dhruv
+    spec:
+      containers:
+        - name: api
+          image: python:3.12-alpine
+          command: ["python", "/code/app.py"]
+          ports:
+            - containerPort: 8000
+          # envFrom pulls in EVERY key as an environment variable.
+          envFrom:
+            - configMapRef:
+                name: app-config
+            - secretRef:
+                name: app-secret
+          env:
+            # A single explicit key, as an alternative to envFrom.
+            - name: EXPLICIT_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: app-secret
+                  key: API_TOKEN
+          volumeMounts:
+            - name: code
+              mountPath: /code
+            - name: secret-files
+              mountPath: /etc/app-secret
+              readOnly: true
+          resources:
+            requests:
+              cpu: 10m
+              memory: 24Mi
+      volumes:
+        - name: code
+          configMap:
+            name: backend-code
+        - name: secret-files
+          secret:
+            secretName: app-secret
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend
+spec:
+  selector:
+    app: backend
+  ports:
+    - port: 8000
+      targetPort: 8000

@@ -1,0 +1,24 @@
+# Two node kind cluster used for assignment topics 08 to 11.
+#
+# The control-plane node also gets ingress-ready labels and host port
+# mappings for 80/443, so that the nginx ingress controller in topic 11
+# can be reached from the browser on localhost.
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: dhruv-devops
+nodes:
+  - role: control-plane
+    kubeadmConfigPatches:
+      - |
+        kind: InitConfiguration
+        nodeRegistration:
+          kubeletExtraArgs:
+            node-labels: "ingress-ready=true"
+    extraPortMappings:
+      - containerPort: 80
+        hostPort: 80
+        protocol: TCP
+      - containerPort: 443
+        hostPort: 443
+        protocol: TCP
+  - role: worker

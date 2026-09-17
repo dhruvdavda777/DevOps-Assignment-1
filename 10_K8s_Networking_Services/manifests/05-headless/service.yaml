@@ -1,0 +1,14 @@
+# clusterIP: None makes this headless: DNS returns every Pod IP instead of one
+# virtual IP. Required for StatefulSets, where clients need individual Pods.
+apiVersion: v1
+kind: Service
+metadata:
+  name: db-headless
+spec:
+  clusterIP: None
+  selector:
+    app: db
+  ports:
+    - name: http
+      port: 80
+      targetPort: 80

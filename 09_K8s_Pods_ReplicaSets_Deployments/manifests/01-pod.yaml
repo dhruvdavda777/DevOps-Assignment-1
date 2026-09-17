@@ -1,0 +1,30 @@
+# A single bare Pod. Nothing manages it: delete it and it stays deleted.
+# Dhruv Davda - 24BCS10203
+apiVersion: v1
+kind: Pod
+metadata:
+  name: solo-pod
+  labels:
+    app: solo
+    owner: dhruv
+spec:
+  containers:
+    - name: web
+      image: nginx:1.27-alpine
+      ports:
+        - containerPort: 80
+      # Requests are what the scheduler uses to place the Pod; limits are the
+      # hard ceiling the kernel enforces.
+      resources:
+        requests:
+          cpu: 25m
+          memory: 32Mi
+        limits:
+          cpu: 200m
+          memory: 128Mi
+      readinessProbe:
+        httpGet:
+          path: /
+          port: 80
+        initialDelaySeconds: 2
+        periodSeconds: 5

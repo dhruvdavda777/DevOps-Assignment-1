@@ -1,0 +1,16 @@
+# A throwaway Pod with curl and dig, used to test from inside the cluster.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: client
+  labels:
+    app: client
+spec:
+  containers:
+    - name: tools
+      image: nicolaka/netshoot:latest
+      command: ["sleep", "3600"]
+      resources:
+        requests:
+          cpu: 10m
+          memory: 16Mi

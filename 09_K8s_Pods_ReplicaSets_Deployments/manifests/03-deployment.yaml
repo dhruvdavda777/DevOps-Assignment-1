@@ -1,0 +1,42 @@
+# A Deployment manages ReplicaSets, which manage Pods. That extra layer is what
+# makes rolling updates and rollbacks possible.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web-deploy
+  labels:
+    app: web-deploy
+spec:
+  replicas: 4
+  revisionHistoryLimit: 5
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      # Never drop below 3 available (4 - 1) and never exceed 5 total (4 + 1),
+      # so the app stays up throughout the update.
+      maxUnavailable: 1
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app: web-deploy
+  template:
+    metadata:
+      labels:
+        app: web-deploy
+        owner: dhruv
+    spec:
+      containers:
+        - name: web
+          image: nginx:1.25-alpine        # deliberately old, updated later
+          ports:
+            - containerPort: 80
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 80
+            initialDelaySeconds: 1
+            periodSeconds: 3

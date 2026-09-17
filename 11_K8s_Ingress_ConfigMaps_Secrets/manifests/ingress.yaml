@@ -1,0 +1,29 @@
+# One entry point, two backends, routed by URL path.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: app-ingress
+  annotations:
+    # Rewrite /api/foo to /foo before it reaches the backend, so the backend
+    # does not need to know it is mounted under a prefix.
+    nginx.ingress.kubernetes.io/rewrite-target: /$2
+spec:
+  ingressClassName: nginx
+  rules:
+    - http:
+        paths:
+          # The (/|$)(.*) capture group is what $2 in rewrite-target refers to.
+          - path: /api(/|$)(.*)
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: backend
+                port:
+                  number: 8000
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: frontend
+                port:
+                  number: 80
