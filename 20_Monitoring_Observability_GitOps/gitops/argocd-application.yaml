@@ -1,0 +1,26 @@
+# The Argo CD Application: "keep the cluster matching this path in this repo".
+# Dhruv Davda - 24BCS10203
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: gitops-demo
+  namespace: argocd
+spec:
+  project: default
+
+  # GIT IS THE SOURCE OF TRUTH - this is the only place desired state lives.
+  source:
+    repoURL: https://github.com/dhruvdavda777/DevOps-Assignment-1.git
+    targetRevision: main
+    path: 20_Monitoring_Observability_GitOps/gitops/apps
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: gitops-demo
+
+  syncPolicy:
+    automated:
+      prune: true      # delete resources removed from Git
+      selfHeal: true   # revert manual changes made in the cluster
+    syncOptions:
+      - CreateNamespace=true
