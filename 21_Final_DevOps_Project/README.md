@@ -466,3 +466,34 @@ called out where it applies. The most useful thing I learned from that is that *
 exactly the interesting edges**: LocalStack ran five S3 resources faithfully and then hung on
 lifecycle configuration, which is precisely the kind of gap that makes "it worked locally" an
 unreliable claim about production.
+
+---
+
+## Screenshots
+
+Terminal output captured during the runs documented above.
+
+### The image builds, runs and is non-root
+![docker image](./screenshots/s21-02-docker-image-verify.png)
+
+API, metrics, and `whoami` → `node` / uid `1000`.
+
+### Running in the cluster
+![in cluster](./screenshots/s21-03-running-in-cluster.png)
+
+`api_key_length: 44` here versus `17` in local Docker — proof the Kubernetes Secret, not the local `-e` flag, supplied the value.
+
+### Storage survives Pod destruction
+![pvc persistence](./screenshots/s21-04-pvc-persistence.png)
+
+Different Pod name, same two tasks.
+
+### Troubleshooting faults 1 and 2
+![faults 1 and 2](./screenshots/s21-05-faults-1-and-2.png)
+
+Empty endpoints from a bad selector, then `Running 0/1` with **0 restarts** from a bad readiness path.
+
+### Fault 3 — the missing Secret
+![fault 3](./screenshots/s21-06-fault-3-secret.png)
+
+`kubectl logs` returns an API error; only `describe` names `secret "taskboard-secret-renamed" not found`.

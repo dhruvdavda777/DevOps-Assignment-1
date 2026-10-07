@@ -448,3 +448,34 @@ One chart, three releases, no copy-pasted YAML. That is the entire argument for 
   "deployed" while users saw revision 2, and the rollback was complete while Pods still served stale
   mounted content for ~50s.
 - **`CHART VERSION` and `APP VERSION` are independent**, which matters when pinning dependencies.
+
+---
+
+## Screenshots
+
+Terminal output captured during the runs documented above.
+
+### `helm create` and the chart that fails lint
+![helm create](./screenshots/s15-01-helm-create.png)
+
+The generated chart layout, before I replaced the templates.
+
+### `helm install`
+![helm install](./screenshots/s15-02-helm-install.png)
+
+`REVISION: 1`, with `NOTES.txt` rendered using the release's own values.
+
+### Upgrades — including one that lies
+![helm upgrade](./screenshots/s15-03-helm-upgrade.png)
+
+Revision 3 reports **`STATUS: deployed`** while its Pod sits in `ImagePullBackOff` and users are still served revision 2.
+
+### Rollback and `--rollback-on-failure`
+![helm rollback](./screenshots/s15-04-helm-rollback.png)
+
+The rollback appends revision 4; the atomic retry records revision 5 as **`failed`** and auto-reverts to 6.
+
+### Repos, search, and where release state lives
+![helm repo and state](./screenshots/s15-05-repo-and-state.png)
+
+One Secret per revision, in the release namespace — the cluster is Helm's database.

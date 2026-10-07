@@ -327,3 +327,44 @@ a StatefulSet so each replica gets its own volume.
 $ kubectl delete -f mini-project/ -f manifests/
 $ kubectl delete pvc --all
 ```
+
+---
+
+## Screenshots
+
+Terminal output captured during the runs documented above.
+
+### StorageClass, emptyDir and hostPath
+![storage basics](./screenshots/s13-01-storageclass-emptydir-hostpath.png)
+
+`WaitForFirstConsumer` binding mode, two containers sharing one `emptyDir`, and a Pod reading the node's own `/etc/hostname`.
+
+### Dynamic provisioning and persistence
+![dynamic provisioning](./screenshots/s13-02-dynamic-provisioning.png)
+
+PVCs bound to auto-created PVs, and the data file surviving Pod deletion with both timestamps intact.
+
+### StatefulSet PVC reattachment
+![statefulset pvc](./screenshots/s13-03-statefulset-pvc-reattach.png)
+
+Same PV UUID before and after deleting `sts-storage-0`, plus `WaitForFirstConsumer` holding an unused PVC at `Pending`.
+
+### HPA configured and reporting
+![hpa configured](./screenshots/s13-04-hpa-configured.png)
+
+The `<unknown>` startup window, then `cpu: 1%/50%` with all three conditions healthy.
+
+### HPA scaling up under load
+![hpa scale up](./screenshots/s13-05-hpa-scale-up.png)
+
+1 → 5 replicas at 233% CPU, then to the ceiling of 8.
+
+### Capped, then scaling back down
+![hpa scale down](./screenshots/s13-06-hpa-capped-and-scale-down.png)
+
+`ScalingLimited: True / TooManyReplicas`, then 8 → 1 once the 60s stabilization window expires.
+
+### Mini project — all three probes
+![mini project](./screenshots/s13-07-mini-project-probes.png)
+
+`RESTARTS 0` through a 20-second boot: the `startupProbe` suspending liveness is what prevents the crash loop.

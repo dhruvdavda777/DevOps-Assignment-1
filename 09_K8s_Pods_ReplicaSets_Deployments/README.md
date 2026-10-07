@@ -1096,3 +1096,42 @@ returned immediately instead of waiting out the grace period. Same mechanism, on
 $ kubectl delete -f manifests/lifecycle/ -f manifests/strategies/
 $ kubectl delete svc lc-probes-svc
 ```
+
+---
+
+## Screenshots
+
+Terminal output captured during the runs documented above.
+
+### Recreate strategy — measured downtime
+![recreate](./screenshots/s10-01-recreate-strategy.png)
+
+`available=0` for three consecutive seconds, and the controller events show scale-down to 0 completing *before* scale-up begins.
+
+### Blue-green cutover
+![blue-green](./screenshots/s10-02-blue-green-cutover.png)
+
+All four Pods running, traffic 100% blue, then the selector patch moves every request to green.
+
+### Canary traffic split
+![canary](./screenshots/s10-03-canary-traffic-split.png)
+
+100 requests across a 4:1 replica ratio → **82 BLUE / 18 GREEN**, then 40/40 GREEN after promotion.
+
+### Pod lifecycle — every state at once
+![lifecycle states](./screenshots/s10-04-lifecycle-all-states.png)
+
+### Succeeded, Failed, CrashLoopBackOff, init containers
+![lifecycle phases](./screenshots/s10-05-lifecycle-phases.png)
+
+Exit code 7 preserved on `Failed`; init containers completing in order before the app starts.
+
+### CrashLoopBackOff backoff and probe behaviour
+![crashloop and probes](./screenshots/s10-06-crashloop-and-probes.png)
+
+`back-off 1m20s`, and a Pod that is `Running` with `ready=false` and **0 restarts** — a failing readiness probe never restarts anything.
+
+### Lifecycle hooks and graceful shutdown
+![hooks](./screenshots/s10-07-lifecycle-hooks.png)
+
+Deletion takes 6.0s because the `preStop` hook sleeps 5s.

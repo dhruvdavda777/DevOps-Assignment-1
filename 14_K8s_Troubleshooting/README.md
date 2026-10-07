@@ -473,3 +473,27 @@ $ kubectl delete pod tsclient ts-pending-fixed ts-imagepull --ignore-not-found
 $ kubectl delete cm app-config config-that-does-not-exist --ignore-not-found
 $ kubectl delete pvc pvc-that-does-not-exist --ignore-not-found
 ```
+
+---
+
+## Screenshots
+
+Terminal output captured during the runs documented above.
+
+### Ten failure modes, deployed at once
+![ten failures](./screenshots/s14-01-ten-failures.png)
+
+`<none>` in both IP and NODE for the two unscheduled Pods is diagnostic on its own.
+
+### Diagnosing each one
+![diagnosis](./screenshots/s14-02-diagnosis.png)
+
+Bad **tag** (`not found`) versus bad **repository** (`pull access denied / insufficient_scope`), the scheduler accounting for both nodes separately, and exit code 137 on the OOM kill.
+
+### Service and DNS failures
+![service and dns](./screenshots/s14-03-service-and-dns.png)
+
+Empty endpoints versus endpoints pointing at a **dead port** — the second looks healthy and is not.
+
+### All ten resolved
+![all fixed](./screenshots/s14-04-all-fixed.png)
