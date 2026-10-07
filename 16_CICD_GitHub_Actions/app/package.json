@@ -1,0 +1,13 @@
+{
+  "name": "dhruv-cicd-demo",
+  "version": "1.0.0",
+  "description": "CI/CD demo app - Dhruv Davda 24BCS10203",
+  "main": "src/server.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node src/server.js",
+    "test": "node --test"
+  },
+  "engines": { "node": ">=20" },
+  "license": "MIT"
+}

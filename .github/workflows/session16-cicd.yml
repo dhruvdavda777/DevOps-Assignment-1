@@ -1,0 +1,148 @@
+# CI/CD pipeline for the Session 16 demo app.
+# Dhruv Davda - 24BCS10203
+#
+#   CI : lint-ish checks -> unit tests on a matrix -> build artifact
+#   CD : build + push a container image to GHCR, then "deploy"
+#
+name: Session 16 CI/CD
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '16_CICD_GitHub_Actions/**'
+      - '.github/workflows/session16-cicd.yml'
+  workflow_dispatch:        # lets me run it by hand from the Actions tab
+
+env:
+  APP_DIR: 16_CICD_GitHub_Actions/app
+  IMAGE_NAME: ghcr.io/${{ github.repository_owner }}/dhruv-cicd-demo
+
+jobs:
+  # ---------------- CI ----------------
+  test:
+    name: Unit tests (Node ${{ matrix.node }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ['20', '22']        # prove it works on more than one runtime
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node ${{ matrix.node }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+
+      - name: Show versions
+        run: node --version && npm --version
+
+      - name: Run unit tests
+        working-directory: ${{ env.APP_DIR }}
+        run: node --test
+
+      - name: Smoke-test the server
+        working-directory: ${{ env.APP_DIR }}
+        run: |
+          node src/server.js &
+          SERVER_PID=$!
+          # Wait for the port instead of sleeping a fixed amount.
+          for i in $(seq 1 20); do
+            curl -sf http://localhost:3000/healthz && break
+            sleep 1
+          done
+          echo ""
+          curl -s http://localhost:3000/ | tee response.json
+          curl -s "http://localhost:3000/grade?score=88"
+          echo ""
+          kill $SERVER_PID
+
+  build-artifact:
+    name: Build artifact
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create a release bundle
+        working-directory: ${{ env.APP_DIR }}
+        run: |
+          mkdir -p dist
+          tar -czf dist/dhruv-cicd-demo-${{ github.sha }}.tar.gz src package.json
+          ls -lh dist/
+
+      - name: Upload the artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-bundle-${{ github.sha }}
+          path: ${{ env.APP_DIR }}/dist/*.tar.gz
+          retention-days: 7
+
+  # ---------------- CD ----------------
+  docker:
+    name: Build and push image
+    runs-on: ubuntu-latest
+    needs: [test, build-artifact]
+    permissions:
+      contents: read
+      packages: write        # required to push to GHCR
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          # GITHUB_TOKEN is injected by Actions - no secret to manage.
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Derive image tags
+        id: meta
+        run: |
+          echo "sha_tag=${{ env.IMAGE_NAME }}:${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+          echo "latest_tag=${{ env.IMAGE_NAME }}:latest" >> "$GITHUB_OUTPUT"
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ env.APP_DIR }}
+          push: true
+          tags: |
+            ${{ steps.meta.outputs.sha_tag }}
+            ${{ steps.meta.outputs.latest_tag }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Summarise
+        run: |
+          echo "### Image published :rocket:" >> $GITHUB_STEP_SUMMARY
+          echo "- \`${{ steps.meta.outputs.sha_tag }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- \`${{ steps.meta.outputs.latest_tag }}\`" >> $GITHUB_STEP_SUMMARY
+
+  deploy:
+    name: Deploy (simulated)
+    runs-on: ubuntu-latest
+    needs: docker
+    environment: production        # a protected environment can require approval
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Render the Kubernetes manifests
+        run: |
+          echo "Would apply to the cluster:"
+          sed "s|IMAGE_PLACEHOLDER|${{ env.IMAGE_NAME }}:${GITHUB_SHA::7}|g" \
+            ${{ env.APP_DIR }}/../k8s/deployment.yaml
+
+      - name: Deployment summary
+        run: |
+          echo "### Deployed :white_check_mark:" >> $GITHUB_STEP_SUMMARY
+          echo "Commit: \`${GITHUB_SHA::7}\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "The cluster in this assignment is a local kind cluster with no public" >> $GITHUB_STEP_SUMMARY
+          echo "API endpoint, so this job renders the manifests rather than applying them." >> $GITHUB_STEP_SUMMARY
