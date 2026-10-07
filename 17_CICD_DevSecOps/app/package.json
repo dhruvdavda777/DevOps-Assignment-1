@@ -1,0 +1,15 @@
+{
+  "name": "dhruv-devsecops-demo",
+  "version": "1.0.0",
+  "description": "DevSecOps demo - Dhruv Davda 24BCS10203",
+  "main": "src/server.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node src/server.js",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "license": "MIT"
+}

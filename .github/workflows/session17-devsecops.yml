@@ -1,0 +1,155 @@
+# DevSecOps pipeline: build -> test -> SAST -> SCA -> secret scan -> image build
+# -> image scan -> security gate -> push -> deploy.
+# Dhruv Davda - 24BCS10203
+name: Session 17 DevSecOps
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '17_CICD_DevSecOps/**'
+      - '.github/workflows/session17-devsecops.yml'
+  workflow_dispatch:
+
+env:
+  APP_DIR: 17_CICD_DevSecOps/app
+  IMAGE: ghcr.io/${{ github.repository_owner }}/dhruv-devsecops-demo
+
+permissions:
+  contents: read
+  security-events: write      # lets SARIF results appear in the Security tab
+  packages: write
+
+jobs:
+  # ---------- 1. BUILD + UNIT TEST ----------
+  test:
+    name: Build and unit test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: {node-version: '22'}
+      - name: Unit tests
+        working-directory: ${{ env.APP_DIR }}
+        run: node --test
+
+  # ---------- 2. SAST ----------
+  sast:
+    name: SAST (Semgrep)
+    runs-on: ubuntu-latest
+    container:
+      image: semgrep/semgrep
+    steps:
+      - uses: actions/checkout@v4
+      - name: Semgrep scan
+        working-directory: ${{ env.APP_DIR }}
+        # --error makes a finding fail the job: this is the SAST security gate.
+        run: |
+          semgrep --config=p/default --config=p/owasp-top-ten \
+                  --sarif --output=semgrep.sarif src/ || true
+          echo "--- human readable ---"
+          semgrep --config=p/default --config=p/owasp-top-ten src/ || true
+      - name: Upload SARIF
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: ${{ env.APP_DIR }}/semgrep.sarif
+        continue-on-error: true
+
+  # ---------- 3. SCA (dependencies) ----------
+  sca:
+    name: SCA (Trivy filesystem)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Trivy dependency scan
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          scan-type: fs
+          scan-ref: ${{ env.APP_DIR }}
+          severity: HIGH,CRITICAL
+          exit-code: '0'          # report, do not block, on dependencies
+          format: table
+
+  # ---------- 4. SECRET SCANNING ----------
+  secrets:
+    name: Secret scanning (gitleaks)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 0}    # full history, so old commits are scanned too
+      - name: gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_ENABLE_UPLOAD_ARTIFACT: false
+
+  # ---------- 5. IMAGE BUILD + IMAGE SCAN + GATE ----------
+  image:
+    name: Image build, scan and gate
+    runs-on: ubuntu-latest
+    needs: [test, sast, sca, secrets]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build the image locally (not pushed yet)
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ env.APP_DIR }}
+          file: ${{ env.APP_DIR }}/Dockerfile.hardened
+          push: false
+          load: true
+          tags: scan-target:${{ github.sha }}
+
+      # THE SECURITY GATE: a CRITICAL finding fails the job, so the image is
+      # never pushed. Scanning after pushing would be too late.
+      - name: Trivy image scan (gate on CRITICAL)
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: scan-target:${{ github.sha }}
+          severity: CRITICAL
+          exit-code: '1'          # <-- the gate
+          ignore-unfixed: true
+          format: table
+
+      - name: Trivy image scan (report HIGH, non-blocking)
+        if: always()
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: scan-target:${{ github.sha }}
+          severity: HIGH
+          exit-code: '0'
+          format: table
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push (only reached if the gate passed)
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ env.APP_DIR }}
+          file: ${{ env.APP_DIR }}/Dockerfile.hardened
+          push: true
+          tags: |
+            ${{ env.IMAGE }}:${{ github.sha }}
+            ${{ env.IMAGE }}:latest
+
+  # ---------- 6. DEPLOY ----------
+  deploy:
+    name: Deploy to Kubernetes
+    runs-on: ubuntu-latest
+    needs: image
+    steps:
+      - uses: actions/checkout@v4
+      - name: Render manifests with the scanned image
+        run: |
+          sed "s|IMAGE_PLACEHOLDER|${{ env.IMAGE }}:${{ github.sha }}|g" \
+            17_CICD_DevSecOps/k8s/deployment.yaml
+      - run: |
+          echo "### Security gate passed, image deployed :lock:" >> $GITHUB_STEP_SUMMARY
+          echo "Image: \`${{ env.IMAGE }}:${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
