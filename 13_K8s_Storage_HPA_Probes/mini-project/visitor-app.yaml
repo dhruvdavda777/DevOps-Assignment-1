@@ -1,0 +1,121 @@
+# Mini project: a visit-counter that combines everything from Session 13.
+#   - PVC          : the counter survives Pod restarts
+#   - startupProbe : protects a deliberately slow boot from the liveness probe
+#   - readinessProbe: keeps traffic away until the data file is open
+#   - livenessProbe : restarts the container if it wedges
+#   - HPA          : scales on CPU
+# Dhruv Davda - 24BCS10203
+apiVersion: v1
+kind: ConfigMap
+metadata: {name: visitor-code}
+data:
+  app.py: |
+    import hashlib, os, socket, threading, time
+    from http.server import BaseHTTPRequestHandler, HTTPServer
+
+    DATA = "/data/visits.txt"
+    BOOT_DELAY = int(os.environ.get("BOOT_DELAY", "20"))   # deliberately slow boot
+    READY = {"ok": False}
+
+    def warmup():
+        # Simulates loading a model / warming a cache. The startupProbe exists
+        # to cover exactly this window.
+        time.sleep(BOOT_DELAY)
+        os.makedirs("/data", exist_ok=True)
+        if not os.path.exists(DATA):
+            with open(DATA, "w") as f:
+                f.write("0")
+        READY["ok"] = True
+
+    threading.Thread(target=warmup, daemon=True).start()
+
+    lock = threading.Lock()
+
+    class H(BaseHTTPRequestHandler):
+        def do_GET(self):
+            if self.path == "/healthz":                 # liveness: always cheap
+                body = b"alive"
+            elif self.path == "/ready":                 # readiness: only after warmup
+                if not READY["ok"]:
+                    self.send_response(503); self.end_headers(); self.wfile.write(b"warming up"); return
+                body = b"ready"
+            elif self.path == "/work":                  # CPU burn, for the HPA
+                d = b"dhruv"
+                for _ in range(150000):
+                    d = hashlib.sha256(d).digest()
+                body = b"worked"
+            else:
+                if not READY["ok"]:
+                    self.send_response(503); self.end_headers(); self.wfile.write(b"warming up"); return
+                with lock:                              # the persistent counter
+                    n = int(open(DATA).read().strip() or 0) + 1
+                    open(DATA, "w").write(str(n))
+                body = f"visits={n} pod={socket.gethostname()}\n".encode()
+            self.send_response(200)
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+        def log_message(self, *a): pass
+
+    HTTPServer(("0.0.0.0", 8080), H).serve_forever()
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata: {name: visitor-data}
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: standard
+  resources: {requests: {storage: 64Mi}}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: visitor}
+spec:
+  replicas: 1
+  # RWO storage means all replicas must land on one node; Recreate avoids two
+  # Pods holding the same volume during an update.
+  strategy: {type: Recreate}
+  selector:
+    matchLabels: {app: visitor}
+  template:
+    metadata:
+      labels: {app: visitor}
+    spec:
+      containers:
+        - name: app
+          image: python:3.12-alpine
+          command: ["python", "/code/app.py"]
+          ports: [{containerPort: 8080}]
+          env:
+            - {name: BOOT_DELAY, value: "20"}
+          volumeMounts:
+            - {name: code, mountPath: /code}
+            - {name: data, mountPath: /data}
+          resources:
+            requests: {cpu: 100m, memory: 64Mi}
+            limits:   {cpu: 500m, memory: 256Mi}
+          # startupProbe must pass FIRST. While it runs, liveness and readiness
+          # are suspended - this is what stops a slow boot being killed.
+          startupProbe:
+            httpGet: {path: /ready, port: 8080}
+            periodSeconds: 3
+            failureThreshold: 20        # allows up to 60s to boot
+          readinessProbe:
+            httpGet: {path: /ready, port: 8080}
+            periodSeconds: 5
+          livenessProbe:
+            httpGet: {path: /healthz, port: 8080}
+            periodSeconds: 10
+            failureThreshold: 3
+      volumes:
+        - name: code
+          configMap: {name: visitor-code}
+        - name: data
+          persistentVolumeClaim: {claimName: visitor-data}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: visitor}
+spec:
+  selector: {app: visitor}
+  ports: [{port: 80, targetPort: 8080, name: http}]

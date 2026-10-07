@@ -1,0 +1,26 @@
+# PersistentVolumeClaim: a REQUEST for storage. With a StorageClass that has a
+# provisioner, Kubernetes creates the PersistentVolume automatically -
+# this is dynamic provisioning.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata: {name: data-pvc}
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: standard         # kind's default (local-path-provisioner)
+  resources:
+    requests:
+      storage: 128Mi
+---
+apiVersion: v1
+kind: Pod
+metadata: {name: vol-pvc}
+spec:
+  containers:
+    - name: app
+      image: busybox:1.36
+      command: ["sh", "-c", "echo \"written by $(hostname) at $(date)\" >> /data/persistent.txt; sleep 3600"]
+      volumeMounts: [{name: data, mountPath: /data}]
+  volumes:
+    - name: data
+      persistentVolumeClaim:
+        claimName: data-pvc
