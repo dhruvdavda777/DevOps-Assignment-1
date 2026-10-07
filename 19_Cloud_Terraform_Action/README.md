@@ -305,3 +305,68 @@ security-group-referencing-a-security-group pattern, which is the part worth lea
   doc, confirmed by reading the route table Terraform built.
 - **Verify with a second tool.** Terraform reporting success and `aws ec2 describe-*` agreeing are
   two different claims, and only the second one is evidence.
+
+---
+
+## Screenshots — the full lifecycle
+
+A terminal walkthrough of the same workflow captured against a real AWS sandbox account. The inline
+transcripts earlier in this README are the LocalStack run on my own machine, so resource counts, IDs
+and output names differ between the two.
+
+### `terraform plan`
+
+![terraform plan](./screenshots/session19-plan.png)
+
+The complete set of resources to be created, reviewed before anything is provisioned.
+
+### `terraform apply`
+
+![terraform apply](./screenshots/session19-apply.png)
+
+`Apply complete! Resources: 11 added, 0 changed, 0 destroyed.` — the EC2 instance and S3 bucket
+created last, after the networking they depend on.
+
+### `terraform output`
+
+![terraform output](./screenshots/session19-output.png)
+
+The instance ID and the resulting website URL, plus `-raw` for the scriptable single value.
+
+### `terraform state list`
+
+![terraform state list](./screenshots/session19-state.png)
+
+Everything Terraform is managing, in one list.
+
+### Verifying with the AWS CLI
+
+![aws cli checks](./screenshots/session19-aws-checks.png)
+
+Independent confirmation against the AWS APIs — the VPC, subnets, security groups, instance and
+bucket all exist as declared.
+
+### Reaching the application
+
+![curl the instance](./screenshots/session19-curl.png)
+
+The web server responding on the instance's public address — proof the security group rules, route
+table and internet gateway are all wired correctly, not just created.
+
+### `terraform plan -destroy`
+
+![terraform plan -destroy](./screenshots/session19-destroy-plan.png)
+
+Reviewing the teardown before committing to it.
+
+### `terraform destroy`
+
+![terraform destroy](./screenshots/session19-destroy.png)
+
+Resources removed in reverse dependency order — instance and bucket first, VPC last.
+
+### Confirming the account is clean
+
+![empty state](./screenshots/session19-empty.png)
+
+State is empty and the AWS CLI finds nothing left — verified from both sides.

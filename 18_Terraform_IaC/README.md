@@ -396,3 +396,87 @@ at once is otherwise a genuine way to destroy infrastructure.
 - **Emulators are not the real thing.** LocalStack ran S3 faithfully enough for five resources and
   then failed on lifecycle configuration. Worth knowing before trusting a local test to prove a
   production deployment.
+
+---
+
+## Screenshots — the Terraform workflow end to end
+
+A terminal walkthrough of the same command sequence this session requires, captured against a real
+AWS sandbox account. The inline transcripts earlier in this README are the LocalStack run on my own
+machine; these show what each step looks like against AWS itself, so the bucket names, versions and
+resource counts differ between the two.
+
+### 1. Versions and identity
+
+![terraform version and caller identity](./screenshots/s18-01-version-identity.png)
+
+`terraform version` and `aws sts get-caller-identity` — confirming the toolchain and that credentials
+resolve before anything is created. Account and user IDs are masked.
+
+### 2. `terraform init`
+
+![terraform init](./screenshots/s18-02-init.png)
+
+Downloads the AWS provider and writes the lock file.
+
+### 3. `terraform fmt`
+
+![terraform fmt](./screenshots/s18-03-fmt.png)
+
+Lists the files it reformatted — `main.tf`, `variables.tf`, `outputs.tf`, `terraform.tfvars`.
+
+### 4. `terraform validate`
+
+![terraform validate](./screenshots/s18-04-validate.png)
+
+Syntax and type checking, with no API calls.
+
+### 5. `terraform plan`
+
+![terraform plan](./screenshots/s18-05-plan.png)
+
+`Plan: 1 to add, 0 to change, 0 to destroy.`
+
+### 6. `terraform apply`
+
+![terraform apply](./screenshots/s18-06-apply.png)
+
+`Apply complete! Resources: 1 added, 0 changed, 0 destroyed.`
+
+### 7. `terraform show` and `terraform state list`
+
+![terraform show and state list](./screenshots/s18-07-show-state.png)
+
+The resource as recorded in state, and the one-line inventory of what Terraform manages.
+
+### 8. `terraform output`
+
+![terraform output](./screenshots/s18-08-output.png)
+
+Both the full output set and a single value by name — the scriptable form.
+
+### 9. Verifying with the AWS CLI
+
+![aws cli verification](./screenshots/s18-09-aws-verify.png)
+
+Independent confirmation that Terraform's claims are true: the bucket exists, its region matches, the
+tags were applied, and **all four public-access blocks are `true`**.
+
+### 10. `terraform plan -destroy`
+
+![terraform plan -destroy](./screenshots/s18-10-plan-destroy.png)
+
+`Plan: 0 to add, 0 to change, 1 to destroy.` — reviewing a teardown before running it.
+
+### 11. `terraform destroy`
+
+![terraform destroy](./screenshots/s18-11-destroy.png)
+
+`Destroy complete! Resources: 1 destroyed.`
+
+### 12. Confirming it is gone
+
+![empty state](./screenshots/s18-12-empty-state.png)
+
+`terraform state list` returns nothing and the bucket no longer appears in `aws s3 ls` — the teardown
+is verified from both sides, not assumed.
