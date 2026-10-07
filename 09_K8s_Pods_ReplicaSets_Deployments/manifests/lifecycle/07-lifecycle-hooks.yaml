@@ -1,0 +1,18 @@
+# postStart runs just after the container starts; preStop runs just before it is
+# killed. terminationGracePeriodSeconds is how long Kubernetes waits between
+# SIGTERM and SIGKILL - the preStop hook must finish inside it.
+apiVersion: v1
+kind: Pod
+metadata: {name: lc-hooks}
+spec:
+  terminationGracePeriodSeconds: 30
+  containers:
+    - name: web
+      image: nginx:1.27-alpine
+      lifecycle:
+        postStart:
+          exec:
+            command: ["sh", "-c", "echo \"postStart ran at $(date)\" > /usr/share/nginx/html/hook.txt"]
+        preStop:
+          exec:
+            command: ["sh", "-c", "echo 'preStop: draining connections'; sleep 5; echo 'preStop: done'"]

@@ -1,0 +1,10 @@
+# Phase: Running -> Succeeded. Exits 0 and is never restarted.
+apiVersion: v1
+kind: Pod
+metadata: {name: lc-succeeded}
+spec:
+  restartPolicy: Never
+  containers:
+    - name: worker
+      image: busybox:1.36
+      command: ["sh", "-c", "echo 'doing work'; sleep 5; echo 'done'; exit 0"]

@@ -1,0 +1,23 @@
+# Readiness vs liveness, demonstrated on one Pod.
+#  - readinessProbe hits /ready, which does NOT exist -> Pod stays 0/1 Ready
+#  - livenessProbe hits /, which does exist -> container is never restarted
+# So this Pod is Running but never Ready: it is excluded from Service endpoints.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: lc-probes
+  labels: {app: lc-probes}
+spec:
+  containers:
+    - name: web
+      image: nginx:1.27-alpine
+      ports: [{containerPort: 80}]
+      readinessProbe:
+        httpGet: {path: /ready, port: 80}    # 404 -> never ready
+        initialDelaySeconds: 2
+        periodSeconds: 3
+        failureThreshold: 2
+      livenessProbe:
+        httpGet: {path: /, port: 80}         # 200 -> stays alive
+        initialDelaySeconds: 3
+        periodSeconds: 5

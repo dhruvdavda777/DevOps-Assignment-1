@@ -1,0 +1,33 @@
+# Strategy 2: Recreate - ALL old Pods are terminated before any new Pod starts.
+# Guarantees no two versions run at once, at the cost of downtime.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: recreate-app
+spec:
+  replicas: 3
+  strategy:
+    type: Recreate        # no rollingUpdate block is allowed with this type
+  selector:
+    matchLabels:
+      app: recreate-app
+  template:
+    metadata:
+      labels:
+        app: recreate-app
+    spec:
+      containers:
+        - name: web
+          image: nginx:1.25-alpine
+          ports: [{containerPort: 80}]
+          resources:
+            requests: {cpu: 10m, memory: 16Mi}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: recreate-app
+spec:
+  selector:
+    app: recreate-app
+  ports: [{port: 80, targetPort: 80}]

@@ -1,0 +1,11 @@
+# Phase: Pending - accepted by the API server but NOT schedulable.
+# It asks for 500 CPUs, which no node in my 2-node cluster has.
+apiVersion: v1
+kind: Pod
+metadata: {name: lc-pending}
+spec:
+  containers:
+    - name: web
+      image: nginx:1.27-alpine
+      resources:
+        requests: {cpu: "500", memory: 1Gi}

@@ -1,0 +1,58 @@
+# Strategy 4: Canary - stable and canary run at the same time behind ONE Service.
+# The Service selects only "app: canary-demo", so it matches BOTH deployments and
+# the traffic split follows the replica ratio (here 4 stable : 1 canary = ~20%).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: canary-stable
+spec:
+  replicas: 4
+  selector:
+    matchLabels: {app: canary-demo, track: stable}
+  template:
+    metadata:
+      labels: {app: canary-demo, track: stable}
+    spec:
+      containers:
+        - name: web
+          image: nginx:1.27-alpine
+          ports: [{containerPort: 80}]
+          volumeMounts: [{name: conf, mountPath: /etc/nginx/conf.d}]
+          resources:
+            requests: {cpu: 10m, memory: 16Mi}
+      volumes:
+        - name: conf
+          configMap: {name: ver-blue}      # BLUE = the stable version
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: canary-new
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: canary-demo, track: canary}
+  template:
+    metadata:
+      labels: {app: canary-demo, track: canary}
+    spec:
+      containers:
+        - name: web
+          image: nginx:1.27-alpine
+          ports: [{containerPort: 80}]
+          volumeMounts: [{name: conf, mountPath: /etc/nginx/conf.d}]
+          resources:
+            requests: {cpu: 10m, memory: 16Mi}
+      volumes:
+        - name: conf
+          configMap: {name: ver-green}     # GREEN = the canary version
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: canary-service
+spec:
+  # Deliberately does NOT mention "track", so it selects stable AND canary Pods.
+  selector:
+    app: canary-demo
+  ports: [{port: 80, targetPort: 80}]

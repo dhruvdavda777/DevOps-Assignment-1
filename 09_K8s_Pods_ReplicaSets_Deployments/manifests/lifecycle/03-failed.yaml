@@ -1,0 +1,11 @@
+# Phase: Running -> Failed. Exits non-zero with restartPolicy Never, so it
+# stays Failed instead of restarting.
+apiVersion: v1
+kind: Pod
+metadata: {name: lc-failed}
+spec:
+  restartPolicy: Never
+  containers:
+    - name: worker
+      image: busybox:1.36
+      command: ["sh", "-c", "echo 'about to fail'; sleep 3; exit 7"]

@@ -536,3 +536,563 @@ kubectl logs <pod> --previous     # running badly / crash looping -> read the de
 $ kubectl delete -f manifests/
 $ kubectl delete rs web-rs
 ```
+
+---
+
+# Session 10 deliverables
+
+The sections above cover Pods, ReplicaSets, Deployments and the Pod status cheat sheet. This part
+adds the two tasks the session sheet asks for specifically: **all four deployment strategies**, and a
+**Pod lifecycle demonstration**. Manifests are in [`manifests/strategies/`](./manifests/strategies)
+and [`manifests/lifecycle/`](./manifests/lifecycle).
+
+All four strategies use the same tiny nginx that reports which version and which Pod answered, so a
+traffic shift is visible in the response body rather than inferred:
+
+```nginx
+return 200 "version=BLUE pod=$hostname\n";
+```
+
+---
+
+## Task 1: Deployment strategies
+
+### Strategy comparison
+
+| | Rolling Update | Recreate | Blue-Green | Canary |
+|---|---|---|---|---|
+| Downtime | **None** | **Yes** | None | None |
+| Both versions live at once | Briefly | Never | Yes (only one gets traffic) | **Yes, both serve** |
+| Extra resources | +maxSurge | None | **2×** | +canary replicas |
+| Rollback speed | A rolling update back | A full recreate | **Instant** (flip selector) | Scale canary to 0 |
+| Risk exposure | All users, gradually | All users at once | All users at cutover | **A small %** first |
+| Native to Kubernetes | Yes | Yes | Manual (selector patch) | Manual (replica ratio) |
+
+Only the first two are built-in `spec.strategy` values. Blue-green and canary are *patterns* built
+out of Services and labels — which is exactly why they are worth practising by hand.
+
+---
+
+### 01. Rolling Update
+
+```yaml
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1    # never drop below 3 of 4
+      maxSurge: 1          # never exceed 5 total
+```
+
+```console
+$ kubectl apply -f manifests/strategies/01-rolling-update.yaml
+deployment.apps/rolling-app created
+service/rolling-app created
+deployment "rolling-app" successfully rolled out
+
+$ kubectl get pods -l app=rolling-app
+NAME                           READY   STATUS    RESTARTS   AGE
+rolling-app-54b485c5cf-6g84f   1/1     Running   0          57s
+rolling-app-54b485c5cf-fwb96   1/1     Running   0          57s
+rolling-app-54b485c5cf-nbbjv   1/1     Running   0          57s
+rolling-app-54b485c5cf-s4pmq   1/1     Running   0          57s
+```
+
+Sampling Pod counts once a second **during** the update:
+
+```console
+$ kubectl set image deploy/rolling-app web=nginx:1.27-alpine
+deployment.apps/rolling-app image updated
+  t+1s  total=6 ready=4
+  t+2s  total=6 ready=4
+  t+3s  total=5 ready=3
+  t+4s  total=5 ready=3
+  t+5s  total=5 ready=3
+  t+6s  total=5 ready=3
+  t+7s  total=5 ready=3
+  t+8s  total=5 ready=3
+deployment "rolling-app" successfully rolled out
+```
+
+**`ready` never fell below 3**, which is the `maxUnavailable: 1` guarantee on 4 replicas. The app
+served traffic throughout.
+
+`total=6` looks like it breaks `maxSurge: 1` (which caps *non-terminating* Pods at 5), but
+`kubectl get pods` also lists Pods in `Terminating`. The surge limit counts Pods the Deployment
+owns as live; ones already shutting down still appear in the listing.
+
+```console
+$ kubectl get rs -l app=rolling-app -o custom-columns=RS:.metadata.name,DESIRED:.spec.replicas,IMAGE:'.spec.template.spec.containers[0].image'
+RS                       DESIRED   IMAGE
+rolling-app-54b485c5cf   0         nginx:1.25-alpine
+rolling-app-8f47796cc    4         nginx:1.27-alpine
+```
+
+**Use it when** the app tolerates two versions running briefly — the default for stateless services.
+
+---
+
+### 02. Recreate
+
+```yaml
+  strategy:
+    type: Recreate        # no rollingUpdate block is allowed with this type
+```
+
+```console
+$ kubectl get deploy recreate-app -o jsonpath='{.spec.strategy.type}'
+Recreate
+```
+
+Sampling once a second during the update — note the `available` column:
+
+```console
+$ kubectl set image deploy/recreate-app web=nginx:1.27-alpine
+deployment.apps/recreate-app image updated
+  t+1s  running=0 ready=3 available=0
+  t+2s  running=0 ready=3 available=0
+  t+3s  running=0 ready=0 available=0     <-- nothing is serving
+  t+4s  running=3 ready=3 available=3
+  t+5s  running=3 ready=3 available=3
+```
+
+**`available=0` for three consecutive seconds. That is real, measured downtime** — the whole point of
+the strategy, and the thing the rolling update avoided.
+
+The controller events prove the ordering is strictly sequential:
+
+```console
+$ kubectl describe deploy recreate-app | sed -n '/Events:/,$p'
+Events:
+  Type    Reason             Age   From                   Message
+  ----    ------             ----  ----                   -------
+  Normal  ScalingReplicaSet  15s   deployment-controller  Scaled up replica set recreate-app-6b44bd995d from 0 to 3
+  Normal  ScalingReplicaSet  14s   deployment-controller  Scaled down replica set recreate-app-6b44bd995d from 3 to 0
+  Normal  ScalingReplicaSet  12s   deployment-controller  Scaled up replica set recreate-app-7cc467467b from 0 to 3
+```
+
+Compare this directly with the rolling update's event list earlier in this README, which interleaved
+`up 1 / down 1` eight times. Here it is **down to 0, then up to 3** — no overlap at any point.
+
+**Use it when** two versions must never coexist: a database schema migration that is not
+backward-compatible, or an app that takes an exclusive lock on a shared resource.
+
+---
+
+### 03. Blue-Green
+
+Two complete environments run side by side. The Service selector is the switch.
+
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: bg-service
+spec:
+  # THIS is the cutover switch. version: blue -> all traffic to blue.
+  selector:
+    app: bg
+    version: blue
+```
+
+```console
+$ kubectl get pods -l app=bg -o custom-columns=NAME:.metadata.name,VERSION:.metadata.labels.version,STATUS:.status.phase
+NAME                        VERSION   STATUS
+bg-blue-78c4b4c4d7-fngfv    blue      Running
+bg-blue-78c4b4c4d7-ntq64    blue      Running
+bg-green-85fcf6b99f-9mfv8   green     Running
+bg-green-85fcf6b99f-mdb54   green     Running
+```
+
+**All four Pods are running**, but only blue receives traffic:
+
+```console
+$ kubectl get svc bg-service -o jsonpath='{.spec.selector}'
+{"app":"bg","version":"blue"}
+
+$ for i in $(seq 1 6); do kubectl exec client -- curl -s bg-service; done
+version=BLUE pod=bg-blue-78c4b4c4d7-fngfv
+version=BLUE pod=bg-blue-78c4b4c4d7-ntq64
+version=BLUE pod=bg-blue-78c4b4c4d7-fngfv
+version=BLUE pod=bg-blue-78c4b4c4d7-fngfv
+version=BLUE pod=bg-blue-78c4b4c4d7-ntq64
+version=BLUE pod=bg-blue-78c4b4c4d7-ntq64
+```
+
+#### The cutover
+
+```console
+$ kubectl patch svc bg-service -p '{"spec":{"selector":{"app":"bg","version":"green"}}}'
+service/bg-service patched
+
+$ kubectl get endpoints bg-service
+NAME         ENDPOINTS                       AGE
+bg-service   10.244.1.21:80,10.244.1.22:80   2s
+
+$ kubectl get pods -l app=bg,version=green -o jsonpath='{range .items[*]}{.metadata.name}={.status.podIP}{"\n"}{end}'
+bg-green-85fcf6b99f-9mfv8=10.244.1.21
+bg-green-85fcf6b99f-mdb54=10.244.1.22
+```
+
+The endpoint IPs are now exactly the two **green** Pod IPs. No Pod was created or destroyed — only a
+label selector changed.
+
+#### How fast is the cutover, really?
+
+My first sample straight after the patch returned 5×BLUE then 1×GREEN, which looked like a slow
+transition. That reading was an artifact of the measurement: each `kubectl exec` spawns a new process
+and takes roughly half a second, so those requests straddled the patch.
+
+Re-measuring properly, from a single long-lived shell inside the client Pod with millisecond
+timestamps:
+
+```console
+$ kubectl patch svc bg-service -p '{"spec":{"selector":{...,"version":"green"}}}'
+$ kubectl exec client -- sh -c '... loop with millisecond timestamps ...'
+  +0ms  GREEN
+    confirm: GREEN
+    confirm: GREEN
+    confirm: GREEN
+    confirm: GREEN
+    confirm: GREEN
+```
+
+**The very first request after the patch already hit green.** The cutover propagates faster than I
+can measure from inside the cluster. Worth correcting the first impression rather than reporting it,
+because "blue-green is slow to switch" would have been the wrong lesson.
+
+#### Instant rollback
+
+```console
+$ kubectl patch svc bg-service -p '{"spec":{"selector":{"app":"bg","version":"blue"}}}'
+version=GREEN pod=bg-green-85fcf6b99f-mdb54
+version=GREEN pod=bg-green-85fcf6b99f-9mfv8
+```
+
+(Those two requests were issued while the patch was still landing — the same sub-second window as
+above.) **Rollback is the same single command as the cutover**, which is the defining advantage: the
+old version is still running and healthy, so reverting costs one API call rather than a redeploy.
+
+**Use it when** you want a tested, warmed-up environment and an instant escape hatch — and can afford
+double the resources.
+
+---
+
+### 04. Canary
+
+One Service deliberately selects **both** tracks, so the traffic split follows the replica ratio.
+
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: canary-service
+spec:
+  # Deliberately does NOT mention "track", so it selects stable AND canary Pods.
+  selector:
+    app: canary-demo
+```
+
+```console
+$ kubectl get deploy canary-stable canary-new
+NAME            READY   UP-TO-DATE   AVAILABLE   AGE
+canary-stable   4/4     4            4           1s
+canary-new      1/1     1            1           1s
+
+$ kubectl get svc canary-service -o jsonpath='{.spec.selector}'
+{"app":"canary-demo"}
+```
+
+4 stable + 1 canary = 5 endpoints, so the canary should receive about **20%** of traffic. Measuring
+with 100 requests:
+
+```console
+$ kubectl exec client -- sh -c 'for i in $(seq 1 100); do curl -s canary-service; done' \
+    | grep -o 'version=[A-Z]*' | sort | uniq -c
+  82 version=BLUE      <-- stable
+  18 version=GREEN     <-- canary
+```
+
+**18% actual against 20% theoretical.** The gap is the same kube-proxy behaviour documented in
+Topic 10: backends are chosen at random per connection, so the split is only even on average.
+
+The practical consequence: **replica ratios give you coarse traffic control.** 1-in-5 is easy; a true
+1% canary would need 99 stable Pods, which is absurd. Real percentage-based splitting needs an
+Ingress controller with canary annotations or a service mesh that routes by weight rather than by
+counting Pods.
+
+#### Promotion
+
+```console
+$ kubectl scale deploy/canary-new --replicas=4
+$ kubectl scale deploy/canary-stable --replicas=0
+deployment "canary-new" successfully rolled out
+
+$ kubectl get deploy canary-stable canary-new
+NAME            READY   UP-TO-DATE   AVAILABLE   AGE
+canary-stable   0/0     0            0           8s
+canary-new      4/4     4            4           8s
+
+$ kubectl exec client -- sh -c 'for i in $(seq 1 40); do curl -s canary-service; done' \
+    | grep -o 'version=[A-Z]*' | sort | uniq -c
+  40 version=GREEN
+```
+
+**40 of 40 on the new version**, with no restart of anything — the shift happened purely by changing
+replica counts. Aborting instead of promoting would have been `kubectl scale deploy/canary-new
+--replicas=0`, affecting only the ~20% of users already on it.
+
+**Use it when** you want real production traffic to validate a release before everyone gets it.
+
+---
+
+## Task 2: Pod lifecycle
+
+Seven manifests, each isolating one state. Applying all of them at once gives the whole lifecycle in
+a single table:
+
+```console
+$ kubectl apply -f manifests/lifecycle/
+pod/lc-pending created
+pod/lc-succeeded created
+pod/lc-failed created
+pod/lc-crashloop created
+pod/lc-init created
+pod/lc-probes created
+pod/lc-hooks created
+
+$ kubectl get pods -o custom-columns=NAME:.metadata.name,PHASE:.status.phase,READY:'.status.containerStatuses[0].ready',RESTARTS:'.status.containerStatuses[0].restartCount',NODE:.spec.nodeName
+NAME           PHASE       READY    RESTARTS   NODE
+lc-crashloop   Running     false    5          dhruv-devops-worker
+lc-failed      Failed      false    0          dhruv-devops-worker
+lc-init        Running     true     0          dhruv-devops-worker
+lc-pending     Pending     <none>   <none>     <none>
+lc-probes      Running     false    0          dhruv-devops-worker
+lc-succeeded   Succeeded   false    0          dhruv-devops-worker
+```
+
+The five **phases** are `Pending`, `Running`, `Succeeded`, `Failed` and `Unknown`. Everything else
+seen in `kubectl get pods` — `CrashLoopBackOff`, `Completed`, `ContainerCreating`, `Init:0/2` — is a
+*container state* or a friendly label, not a phase. The table above makes that split visible:
+`lc-crashloop` has **phase `Running`** even while its container is crash-looping.
+
+---
+
+### 1. Pending — scheduled nowhere
+
+```yaml
+      resources:
+        requests: {cpu: "500", memory: 1Gi}     # no node has 500 CPUs
+```
+
+```console
+$ kubectl get pod lc-pending -o jsonpath='{.status.phase}'
+Pending
+
+$ kubectl describe pod lc-pending | sed -n '/Events:/,$p'
+Events:
+  Type     Reason            Age                From               Message
+  ----     ------            ----               ----               -------
+  Warning  FailedScheduling  32s (x3 over 45s)  default-scheduler   0/2 nodes are available: 1 Insufficient cpu, 1 node(s) had untolerated taint(s). preemption: 0/2 nodes are available: 2 Preemption is not helpful for scheduling.
+```
+
+**Observed:** no node, no IP, no container status at all. The message accounts for both nodes
+separately — the worker lacks CPU, the control-plane is tainted (the same taint the DaemonSet earlier
+in this README had to tolerate). `Pending` means the scheduler has not placed it; the image has not
+even been pulled.
+
+---
+
+### 2. Succeeded — ran and exited 0
+
+```console
+$ kubectl get pod lc-succeeded -o custom-columns=PHASE:.status.phase,EXIT:'.status.containerStatuses[0].state.terminated.exitCode',REASON:'.status.containerStatuses[0].state.terminated.reason'
+PHASE       EXIT   REASON
+Succeeded   0      Completed
+
+$ kubectl logs lc-succeeded
+doing work
+done
+```
+
+**Observed:** `kubectl get pods` shows this as `Completed`, but the phase is `Succeeded`. With
+`restartPolicy: Never` the kubelet leaves it terminated. Logs survive after exit, which is what makes
+post-mortem debugging possible. This is the normal end state for a Job.
+
+---
+
+### 3. Failed — exited non-zero
+
+```console
+$ kubectl get pod lc-failed -o custom-columns=PHASE:.status.phase,EXIT:'...exitCode',REASON:'...reason'
+PHASE    EXIT   REASON
+Failed   7      Error
+
+$ kubectl logs lc-failed
+about to fail
+```
+
+**Observed:** the **exit code 7 is preserved exactly** as the container returned it. `Failed` and
+`Succeeded` differ only by that code. The identical container with `restartPolicy: Always` becomes
+the next case — the restart policy, not the failure, decides the outcome.
+
+---
+
+### 4. CrashLoopBackOff — failing repeatedly
+
+```console
+$ kubectl get pod lc-crashloop
+NAME           READY   STATUS             RESTARTS      AGE
+lc-crashloop   0/1     CrashLoopBackOff   4 (77s ago)   2m57s
+
+$ kubectl get pod lc-crashloop -o jsonpath='reason={...waiting.reason} msg={...waiting.message}'
+reason=CrashLoopBackOff msg=back-off 1m20s restarting failed container=worker pod=lc-crashloop_default(4f5800c6-...)
+```
+
+**`back-off 1m20s`** — the exponential backoff, visible as a number. It doubles: 10s, 20s, 40s, 80s,
+capped at 5 minutes.
+
+Catching it took patience, and that is itself the lesson:
+
+```console
+--- polling until the backoff window is long enough to observe ---
+caught CrashLoopBackOff after ~100s
+```
+
+Earlier polls caught the Pod as `Error` and as `Running`, because it **oscillates**: run → crash →
+`Error` → wait → `Running` → crash. `CrashLoopBackOff` is only the waiting part of that cycle, which
+is why a flapping Pod shows a different status each time you look.
+
+```console
+$ kubectl logs lc-crashloop --previous
+starting
+crashing now
+
+$ kubectl describe pod lc-crashloop | sed -n '/Events:/,$p'
+  Normal   Created    80s (x5 over 2m53s)  kubelet  Container created
+  Normal   Started    80s (x5 over 2m53s)  kubelet  Container started
+  Warning  BackOff    2s (x5 over 2m48s)   kubelet  Back-off restarting failed container worker in pod lc-crashloop_default(...)
+```
+
+**`--previous` is the essential flag.** Plain `kubectl logs` shows the *current* container, which
+during a backoff window does not exist yet; `--previous` shows the one that just died, where the
+actual error is. The `(x5 over 2m53s)` counters are also how you tell a Pod that crashed once from
+one stuck in a loop.
+
+---
+
+### 5. Init containers — ordered startup
+
+```console
+$ kubectl get pod lc-init -o jsonpath='{range .status.initContainerStatuses[*]}{.name} exit={.state.terminated.exitCode} reason={.state.terminated.reason}{"\n"}{end}'
+init-wait terminated_exit=0 reason=Completed
+init-setup terminated_exit=0 reason=Completed
+
+$ kubectl logs lc-init -c init-wait
+init 1: waiting for a dependency
+$ kubectl logs lc-init -c init-setup
+init 2: writing config
+$ kubectl logs lc-init -c app
+app started, init left:
+ready
+```
+
+**Observed:** both init containers reached `Completed` **before** the app container started, strictly
+in the order written. The app printed `ready` — the file `init-setup` wrote into the shared `emptyDir`
+— proving the handoff worked.
+
+During startup the Pod shows `Init:0/2`, then `Init:1/2`, then `PodInitializing`. The `-c` flag is
+required: with multiple containers, `kubectl logs` alone cannot guess which one you mean.
+
+Init containers are the standard way to wait for a dependency, run a migration, or fetch a secret
+before the app starts — the Kubernetes answer to the Postgres-not-ready race I hit with docker
+compose in Topic 06.
+
+---
+
+### 6. Probes — Running but never Ready
+
+```yaml
+      readinessProbe:
+        httpGet: {path: /ready, port: 80}    # 404 -> never ready
+      livenessProbe:
+        httpGet: {path: /, port: 80}         # 200 -> stays alive
+```
+
+```console
+$ kubectl get pod lc-probes
+NAME        READY   STATUS    RESTARTS   AGE
+lc-probes   0/1     Running   0          2m58s
+
+$ kubectl get pod lc-probes -o jsonpath='phase={.status.phase} ready={...ready} restarts={...restartCount}'
+phase=Running ready=false restarts=0
+
+$ kubectl describe pod lc-probes | sed -n '/Events:/,$p' | tail -1
+  Warning  Unhealthy  104s (x25 over 2m54s)  kubelet  Readiness probe failed: HTTP probe failed with statuscode: 404
+```
+
+**This is the single most important distinction in the whole lifecycle:**
+
+| Probe | Fails → | Effect |
+|---|---|---|
+| **readiness** | Pod removed from Service endpoints | No traffic, **container keeps running** |
+| **liveness** | Container killed and restarted | `RESTARTS` climbs |
+| **startup** | Holds off the other two during slow boot | Protects slow starters from liveness kills |
+
+Here readiness failed 25 times and `restarts` is still **0** — a failing readiness probe never
+restarts anything. And the consequence is concrete:
+
+```console
+$ kubectl expose pod lc-probes --name=lc-probes-svc --port=80
+$ kubectl get endpoints lc-probes-svc
+lc-probes-svc               <none>
+```
+
+**Zero endpoints.** A healthy-looking `Running` Pod serving no traffic — exactly the "empty endpoints"
+failure mode listed in Topic 10's troubleshooting table, reproduced from the other direction.
+
+---
+
+### 7. Lifecycle hooks and graceful shutdown
+
+```yaml
+  terminationGracePeriodSeconds: 30
+      lifecycle:
+        postStart:
+          exec: {command: ["sh","-c","echo \"postStart ran at $(date)\" > /usr/share/nginx/html/hook.txt"]}
+        preStop:
+          exec: {command: ["sh","-c","echo 'preStop: draining connections'; sleep 5; echo 'preStop: done'"]}
+```
+
+```console
+$ kubectl exec lc-hooks -- cat /usr/share/nginx/html/hook.txt
+postStart ran at Wed Oct  7 11:51:48 UTC 2026
+```
+
+**postStart ran**, and its output is inside the container's filesystem.
+
+```console
+$ time kubectl delete pod lc-hooks
+pod "lc-hooks" deleted from default namespace
+  deletion took 6.0s  (preStop sleeps 5s before SIGTERM proceeds)
+```
+
+**6.0 seconds for a delete that would otherwise be near-instant.** The 5-second `preStop` sleep is
+measurable in the wall clock.
+
+The shutdown order is: Pod marked `Terminating` → **removed from Service endpoints** → `preStop`
+runs → `SIGTERM` → wait up to `terminationGracePeriodSeconds` → `SIGKILL`. The endpoint removal
+happening *before* `preStop` is what makes zero-downtime deploys possible: by the time the app is
+asked to stop, the Service has already stopped sending it new connections, and the `preStop` sleep
+gives in-flight requests time to finish.
+
+This completes the thread from Topic 05, where the Node.js app trapped `SIGTERM` so `docker stop`
+returned immediately instead of waiting out the grace period. Same mechanism, one layer up.
+
+---
+
+## Clean up
+
+```console
+$ kubectl delete -f manifests/lifecycle/ -f manifests/strategies/
+$ kubectl delete svc lc-probes-svc
+```

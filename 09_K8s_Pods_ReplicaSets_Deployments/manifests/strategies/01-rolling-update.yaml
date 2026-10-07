@@ -1,0 +1,39 @@
+# Strategy 1: RollingUpdate - replace Pods gradually, app never goes down.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rolling-app
+spec:
+  replicas: 4
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1    # never drop below 3 of 4
+      maxSurge: 1          # never exceed 5 total
+  selector:
+    matchLabels:
+      app: rolling-app
+  template:
+    metadata:
+      labels:
+        app: rolling-app
+    spec:
+      containers:
+        - name: web
+          image: nginx:1.25-alpine
+          ports: [{containerPort: 80}]
+          readinessProbe:
+            httpGet: {path: /, port: 80}
+            initialDelaySeconds: 1
+            periodSeconds: 2
+          resources:
+            requests: {cpu: 10m, memory: 16Mi}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: rolling-app
+spec:
+  selector:
+    app: rolling-app
+  ports: [{port: 80, targetPort: 80}]

@@ -558,3 +558,145 @@ $ kubectl delete -f manifests/ --recursive
 $ kubectl delete pod client
 $ kubectl delete svc broken-svc
 ```
+
+---
+
+# Session 11 deliverables
+
+Task 1 (all five Service types) is covered in full above. This part adds the remaining three tasks.
+
+| Task | Where |
+|---|---|
+| Task 1 — five Service types | the sections above |
+| Task 2 — object comparisons | below |
+| Task 3 — FQDN | [`fqdn/README.md`](./fqdn/README.md) |
+| Task 4 — CoreDNS | [`coredns/README.md`](./coredns/README.md) |
+
+---
+
+## Task 2: Kubernetes object comparison
+
+### Deployment vs ReplicaSet
+
+| | ReplicaSet | Deployment |
+|---|---|---|
+| **Purpose** | Keep exactly N matching Pods alive | Manage ReplicaSets so the Pod template can **change safely** |
+| **Pod management** | Creates/deletes Pods to match `replicas` | Never touches Pods directly — only ReplicaSet replica counts |
+| **Scaling** | `kubectl scale rs/<name>` | `kubectl scale deploy/<name>`, which scales the current RS |
+| **Rolling updates** | **None.** Changing its template does **not** replace running Pods | Creates a new RS and shifts replicas across, honouring `maxSurge`/`maxUnavailable` |
+| **Rollback** | None | `kubectl rollout undo`, using the retained old RS |
+| **History** | None | `kubectl rollout history`, capped by `revisionHistoryLimit` |
+| **Use directly?** | Almost never | **Yes — the default for stateless apps** |
+
+**The relationship:**
+
+```
+Deployment  ──creates/owns──▶  ReplicaSet  ──creates/owns──▶  Pods
+(revisions,                    (replica count,                (containers)
+ rollout strategy)              self-healing)
+```
+
+One Deployment owns **several** ReplicaSets at once — one per revision. This was visible in Topic 09:
+
+```console
+$ kubectl get rs -l app=web-deploy -o custom-columns=RS:.metadata.name,DESIRED:.spec.replicas,IMAGE:'...image'
+RS                      DESIRED   IMAGE
+web-deploy-69f974c9c    4         nginx:1.27-alpine     <-- current
+web-deploy-6b695d4887   0         nginx:1.25-alpine     <-- previous, kept at 0 for rollback
+```
+
+The empty ReplicaSet is not garbage: it **is** the rollback mechanism. `rollout undo` scales it back
+up and the current one down.
+
+The ReplicaSet hash in Pod names (`web-deploy-`**`69f974c9c`**`-bsjfd`) is a hash of the Pod template,
+which is how the Deployment decides whether an existing RS already matches the desired spec or a new
+one is needed.
+
+**Why you never write a ReplicaSet by hand:** it has no concept of change. Edit its template and
+existing Pods keep running the old spec — only Pods created *after* the edit use the new one. A
+Deployment exists precisely to add the missing "and now safely replace what is running".
+
+---
+
+### Deployment vs DaemonSet vs StatefulSet
+
+| | Deployment | DaemonSet | StatefulSet |
+|---|---|---|---|
+| **Use case** | Stateless apps | Per-node agents | Stateful, clustered apps |
+| **Pod count** | `replicas: N` | **One per node** (no replica field) | `replicas: N`, ordered |
+| **Pod names** | Random: `web-69f974c9c-bsjfd` | Random suffix, pinned per node | **Stable ordinals: `db-0`, `db-1`** |
+| **Pod creation** | All at once, any order | One per node as nodes join | **Sequential: `db-1` waits for `db-0`** |
+| **Pod deletion** | Any order | With the node | **Reverse order**: `db-2` first |
+| **Scaling** | `kubectl scale`, instant | Not scalable — follows node count | `kubectl scale`, still ordered |
+| **Networking** | ClusterIP Service, one VIP | Often `hostPort`/host network | **Headless Service, per-Pod DNS** |
+| **Storage** | Shared or none | `hostPath` for node data | **`volumeClaimTemplates`** — one PVC per Pod, reattached by name |
+| **Identity on restart** | New name, new IP | New name | **Same name, same PVC**, new IP |
+| **Examples** | Web API, frontend | CNI, kube-proxy, log shipper, node-exporter | PostgreSQL, Kafka, etcd, Elasticsearch |
+
+All three were demonstrated with real output:
+
+- **Deployment** — Topic 09 and the four strategies in Session 10.
+- **DaemonSet** — Topic 09. `DESIRED 2` matched the node count with no replica field, and
+  `kubectl scale ds --replicas=5` failed outright. It needed a toleration to run on the tainted
+  control-plane node, which is why `kube-proxy` and `kindnet` appear on both nodes.
+- **StatefulSet** — the headless section above. Creation was strictly sequential (ages 22s/18s/17s),
+  and deleting `db-1` brought it back **as `db-1`** with the same DNS name and a new IP.
+
+**Choosing between them:** can two instances run simultaneously with no coordination? → Deployment.
+Does every node need exactly one? → DaemonSet. Does each instance need a durable identity and its own
+storage? → StatefulSet.
+
+---
+
+### ReplicaSet vs Service
+
+These are often confused because both "relate to a group of Pods", but they solve **orthogonal**
+problems and neither can do the other's job.
+
+| | ReplicaSet | Service |
+|---|---|---|
+| **Responsibility** | *How many* Pods exist | *How to reach* the Pods that exist |
+| **Controls** | Pod lifecycle — creates and deletes | Nothing — it creates no Pods, ever |
+| **Watches** | Pod count vs `replicas` | Pod readiness, to maintain endpoints |
+| **Provides** | Availability and self-healing | A stable VIP, DNS name, load balancing |
+| **If removed** | Pods are not replaced when they die | Pods run fine but have no stable address |
+| **Selector purpose** | Which Pods do I **own** | Which Pods do I **route to** |
+
+Both use label selectors, which is the source of the confusion — but with different intent:
+
+```
+ReplicaSet  --selector app=web-->  [ Pods ]  <--selector app=web--  Service
+    "I must keep 3 of these"                      "I send traffic to these"
+```
+
+They are deliberately decoupled: neither knows the other exists. The Service does not care whether
+Pods come from a ReplicaSet, a StatefulSet, or were created by hand — only whether their labels match
+and they are **Ready**.
+
+**Why a Service is required:** Pod IPs are not stable. Proven in this README:
+
+```console
+$ kubectl get endpoints whoami-clusterip -o jsonpath='{.subsets[0].addresses[*].ip}'
+10.244.1.31 10.244.1.32 10.244.1.34
+
+$ kubectl delete pods -l app=whoami      # the ReplicaSet replaces all three
+
+$ kubectl get svc whoami-clusterip -o jsonpath='{.spec.clusterIP}'      # UNCHANGED
+10.96.152.162
+$ kubectl get endpoints whoami-clusterip -o jsonpath='{.subsets[0].addresses[*].ip}'   # ALL NEW
+10.244.1.35 10.244.1.36 10.244.1.37
+```
+
+The ReplicaSet guaranteed *three Pods existed*. The Service guaranteed *one address kept working*.
+Remove either and the system breaks in a different way.
+
+**How traffic actually reaches a Pod:**
+
+1. Client resolves `whoami-clusterip` → ClusterIP `10.96.152.162` (CoreDNS).
+2. Client connects to that VIP — **an address no network interface owns**.
+3. **kube-proxy's iptables/IPVS rules on the node DNAT** it to one Pod IP from the endpoint list.
+4. The CNI routes the packet to that Pod.
+
+The endpoints controller keeps step 3's list current by watching Pods; **only `Ready` Pods are
+included**, which is what makes rolling updates safe and what makes a failing readiness probe remove
+a Pod from service without restarting it (demonstrated in Session 10's lifecycle task).
