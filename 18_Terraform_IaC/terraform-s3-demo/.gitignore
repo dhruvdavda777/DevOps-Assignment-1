@@ -1,0 +1,6 @@
+# Terraform state contains resource attributes and must never be committed.
+*.tfstate
+*.tfstate.*
+.terraform/
+.terraform.lock.hcl
+crash.log
