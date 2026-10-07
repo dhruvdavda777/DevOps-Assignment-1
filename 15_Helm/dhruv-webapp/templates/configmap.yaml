@@ -1,0 +1,19 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "dhruv-webapp.fullname" . }}-page
+  labels:
+    {{- include "dhruv-webapp.labels" . | nindent 4 }}
+data:
+  index.html: |
+    <!DOCTYPE html>
+    <html lang="en">
+    <head><meta charset="utf-8"><title>{{ .Chart.Name }}</title></head>
+    <body style="font-family: system-ui, sans-serif; text-align:center; padding-top:60px;">
+      <h1 style="color: {{ .Values.app.colour }}">{{ .Values.app.message }}</h1>
+      <p>{{ .Values.app.owner }} &middot; {{ .Values.app.roll }} &middot; Group {{ .Values.app.group }}</p>
+      <p>chart {{ .Chart.Name }}-{{ .Chart.Version }} &middot; appVersion {{ .Chart.AppVersion }}</p>
+      <p>image: {{ .Values.image.repository }}:{{ .Values.image.tag }}</p>
+      <p>release: {{ .Release.Name }} &middot; revision {{ .Release.Revision }}</p>
+    </body>
+    </html>

@@ -1,0 +1,43 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "dhruv-webapp.fullname" . }}
+  labels:
+    {{- include "dhruv-webapp.labels" . | nindent 4 }}
+spec:
+  {{- if not .Values.autoscaling.enabled }}
+  replicas: {{ .Values.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "dhruv-webapp.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        # Changing the page forces a rollout, because the annotation changes.
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+      labels:
+        {{- include "dhruv-webapp.labels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "dhruv-webapp.serviceAccountName" . }}
+      containers:
+        - name: {{ .Chart.Name }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 80
+              protocol: TCP
+          readinessProbe:
+            httpGet: {path: /, port: http}
+            initialDelaySeconds: 1
+            periodSeconds: 3
+          volumeMounts:
+            - name: page
+              mountPath: /usr/share/nginx/html
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+      volumes:
+        - name: page
+          configMap:
+            name: {{ include "dhruv-webapp.fullname" . }}-page

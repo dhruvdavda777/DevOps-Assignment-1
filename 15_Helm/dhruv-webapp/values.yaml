@@ -1,0 +1,47 @@
+# Values for dhruv-webapp.
+# Dhruv Davda - 24BCS10203
+
+replicaCount: 2
+
+image:
+  repository: nginx
+  tag: "1.25-alpine"          # bumped on each upgrade to show rollout + rollback
+  pullPolicy: IfNotPresent
+
+# Rendered into a ConfigMap and served as the index page, so "which release
+# revision am I looking at" is answerable from a browser.
+app:
+  owner: "Dhruv Davda"
+  roll: "24BCS10203"
+  group: "A"
+  message: "Release v1 - initial install"
+  colour: "#2563eb"
+
+service:
+  type: ClusterIP
+  port: 80
+
+resources:
+  requests:
+    cpu: 10m
+    memory: 16Mi
+  limits:
+    cpu: 200m
+    memory: 128Mi
+
+serviceAccount:
+  create: true
+  name: ""
+
+ingress:
+  enabled: false
+
+autoscaling:
+  enabled: false
+
+nameOverride: ""
+fullnameOverride: ""
+podAnnotations: {}
+nodeSelector: {}
+tolerations: []
+affinity: {}

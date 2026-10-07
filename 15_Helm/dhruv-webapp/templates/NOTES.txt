@@ -1,0 +1,16 @@
+{{ .Chart.Name }} release "{{ .Release.Name }}" is now at revision {{ .Release.Revision }}.
+
+Message : {{ .Values.app.message }}
+Image   : {{ .Values.image.repository }}:{{ .Values.image.tag }}
+Replicas: {{ .Values.replicaCount }}
+
+Reach it with a port-forward:
+
+  kubectl port-forward svc/{{ include "dhruv-webapp.fullname" . }} 8080:{{ .Values.service.port }}
+  curl http://localhost:8080
+
+Useful release commands:
+
+  helm status {{ .Release.Name }}
+  helm history {{ .Release.Name }}
+  helm rollback {{ .Release.Name }} <revision>
