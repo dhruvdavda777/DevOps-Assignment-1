@@ -1,0 +1,137 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1040 700" width="1040" height="700" font-family="system-ui, -apple-system, Segoe UI, sans-serif">
+  <style>
+    .t{fill:#1f2933}.m{fill:#6b7785}.lbl{font-size:10.5px}.h{font-size:12.5px;font-weight:600}
+    .title{font-size:17px;font-weight:700}.sec{font-size:11.5px;font-weight:700;fill:#3f4a56}
+    .b{fill:#fff;stroke:#c3cbd6;stroke-width:1.4;rx:7}
+    .git{fill:#eef2fb;stroke:#4a6fd0;stroke-width:1.5;rx:7}
+    .ci{fill:#eaf5ec;stroke:#4a9c62;stroke-width:1.5;rx:7}
+    .secu{fill:#fdecec;stroke:#c9524d;stroke-width:1.5;rx:7}
+    .reg{fill:#f4eefb;stroke:#8457c4;stroke-width:1.5;rx:7}
+    .k8s{fill:#f6f9fc;stroke:#3b7dd8;stroke-width:2;stroke-dasharray:7 4;rx:9}
+    .obj{fill:#fff;stroke:#7d8894;stroke-width:1.2;rx:5}
+    .mon{fill:#fff6e5;stroke:#d9a441;stroke-width:1.5;rx:7}
+    .tf{fill:#f3eefc;stroke:#7b5bbf;stroke-width:1.5;rx:7}
+    .e{stroke:#6b7785;stroke-width:1.5;fill:none}
+  </style>
+  <text x="22" y="28" class="t title">Session 21 — End-to-end DevOps pipeline: taskboard</text>
+  <text x="22" y="47" class="m lbl">Dhruv Davda · 24BCS10203 · Group A — every stage below was built and run in this assignment</text>
+
+  <!-- row 1: dev -> git -> ci -->
+  <rect x="22" y="70" width="104" height="44" class="b"/>
+  <text x="74" y="89" class="t h" text-anchor="middle">Developer</text>
+  <text x="74" y="104" class="m lbl" text-anchor="middle">git push</text>
+
+  <rect x="158" y="70" width="128" height="44" class="git"/>
+  <text x="222" y="89" class="t h" text-anchor="middle">GitHub</text>
+  <text x="222" y="104" class="m lbl" text-anchor="middle">source of truth</text>
+
+  <rect x="318" y="70" width="150" height="44" class="ci"/>
+  <text x="393" y="89" class="t h" text-anchor="middle">GitHub Actions CI</text>
+  <text x="393" y="104" class="m lbl" text-anchor="middle">build · unit test</text>
+
+  <path d="M126 92 L158 92" class="e" marker-end="url(#a)"/>
+  <path d="M286 92 L318 92" class="e" marker-end="url(#a)"/>
+
+  <!-- security band -->
+  <rect x="500" y="62" width="300" height="60" class="secu"/>
+  <text x="650" y="80" class="sec" text-anchor="middle">DevSecOps gates (Session 17)</text>
+  <text x="650" y="96" class="m lbl" text-anchor="middle">SAST · SCA · secret scan · image scan</text>
+  <text x="650" y="111" class="m lbl" text-anchor="middle">CRITICAL ⇒ build fails, image is never pushed</text>
+  <path d="M468 92 L500 92" class="e" marker-end="url(#a)"/>
+
+  <rect x="832" y="70" width="186" height="44" class="reg"/>
+  <text x="925" y="89" class="t h" text-anchor="middle">GHCR registry</text>
+  <text x="925" y="104" class="m lbl" text-anchor="middle">image tagged with the commit SHA</text>
+  <path d="M800 92 L832 92" class="e" marker-end="url(#a)"/>
+
+  <!-- gitops -->
+  <rect x="158" y="150" width="128" height="46" class="git"/>
+  <text x="222" y="169" class="t h" text-anchor="middle">Argo CD</text>
+  <text x="222" y="184" class="m lbl" text-anchor="middle">pulls · self-heals</text>
+  <path d="M222 114 L222 150" class="e" marker-end="url(#a)"/>
+  <text x="232" y="136" class="m lbl">watches main</text>
+
+  <!-- k8s cluster -->
+  <rect x="22" y="222" width="776" height="340" class="k8s"/>
+  <text x="40" y="245" class="t h">Kubernetes cluster — namespace: taskboard</text>
+  <text x="40" y="261" class="m lbl">2-node kind cluster · deployed by Argo CD from Git, never by hand</text>
+
+  <rect x="44" y="276" width="150" height="56" class="obj"/>
+  <text x="119" y="295" class="t lbl" text-anchor="middle" font-weight="600">Ingress</text>
+  <text x="119" y="310" class="m lbl" text-anchor="middle">nginx · /taskboard</text>
+  <text x="119" y="324" class="m lbl" text-anchor="middle">path-based routing</text>
+
+  <rect x="214" y="276" width="150" height="56" class="obj"/>
+  <text x="289" y="295" class="t lbl" text-anchor="middle" font-weight="600">Service</text>
+  <text x="289" y="310" class="m lbl" text-anchor="middle">ClusterIP :80 → :3000</text>
+  <text x="289" y="324" class="m lbl" text-anchor="middle">selector app=taskboard</text>
+  <path d="M194 304 L214 304" class="e" marker-end="url(#a)"/>
+
+  <rect x="384" y="276" width="190" height="56" class="obj"/>
+  <text x="479" y="295" class="t lbl" text-anchor="middle" font-weight="600">Deployment (Recreate)</text>
+  <text x="479" y="310" class="m lbl" text-anchor="middle">startup · readiness · liveness</text>
+  <text x="479" y="324" class="m lbl" text-anchor="middle">non-root uid 1000, caps dropped</text>
+  <path d="M364 304 L384 304" class="e" marker-end="url(#a)"/>
+
+  <rect x="594" y="276" width="182" height="56" class="obj"/>
+  <text x="685" y="295" class="t lbl" text-anchor="middle" font-weight="600">HPA</text>
+  <text x="685" y="310" class="m lbl" text-anchor="middle">1 → 5 replicas @ 70% CPU</text>
+  <text x="685" y="324" class="m lbl" text-anchor="middle">needs resources.requests</text>
+  <path d="M574 304 L594 304" class="e" stroke-dasharray="4 3" marker-end="url(#a)"/>
+
+  <rect x="44" y="356" width="150" height="56" class="obj"/>
+  <text x="119" y="375" class="t lbl" text-anchor="middle" font-weight="600">ConfigMap</text>
+  <text x="119" y="390" class="m lbl" text-anchor="middle">APP_ENV · LOG_LEVEL</text>
+  <text x="119" y="404" class="m lbl" text-anchor="middle">injected via envFrom</text>
+
+  <rect x="214" y="356" width="150" height="56" class="obj"/>
+  <text x="289" y="375" class="t lbl" text-anchor="middle" font-weight="600">Secret</text>
+  <text x="289" y="390" class="m lbl" text-anchor="middle">API_KEY</text>
+  <text x="289" y="404" class="m lbl" text-anchor="middle">never logged or returned</text>
+
+  <rect x="384" y="356" width="190" height="56" class="obj"/>
+  <text x="479" y="375" class="t lbl" text-anchor="middle" font-weight="600">PVC — 128Mi RWO</text>
+  <text x="479" y="390" class="m lbl" text-anchor="middle">/data/tasks.json</text>
+  <text x="479" y="404" class="m lbl" text-anchor="middle">survives Pod deletion</text>
+
+  <path d="M119 356 L119 340 L450 340 L450 356" class="e" stroke-dasharray="4 3"/>
+  <path d="M289 356 L289 344" class="e" stroke-dasharray="4 3"/>
+
+  <!-- monitoring inside -->
+  <rect x="44" y="440" width="732" height="56" class="mon"/>
+  <text x="410" y="459" class="t lbl" text-anchor="middle" font-weight="600">Monitoring — Prometheus scrapes /metrics via the prometheus.io/scrape annotation; Grafana dashboards; alert rules</text>
+  <text x="410" y="476" class="m lbl" text-anchor="middle">taskboard_requests_total · taskboard_errors_total · taskboard_tasks{state} · container CPU and memory from cAdvisor</text>
+  <text x="410" y="490" class="m lbl" text-anchor="middle">Alerts: TaskboardDown (2m) · TaskboardHighErrorRate (&gt;5% for 5m) · TaskboardHighCPU</text>
+
+  <text x="44" y="528" class="m lbl">Troubleshooting challenge: 3 faults injected and fixed — wrong Service selector (empty endpoints) ·</text>
+  <text x="44" y="543" class="m lbl">bad readiness path (Running but 0/1, never restarted) · missing Secret (CreateContainerConfigError, logs useless).</text>
+
+  <!-- terraform -->
+  <rect x="832" y="222" width="186" height="120" class="tf"/>
+  <text x="925" y="244" class="t h" text-anchor="middle">Terraform</text>
+  <text x="925" y="262" class="m lbl" text-anchor="middle">S3 artifacts bucket</text>
+  <text x="925" y="277" class="m lbl" text-anchor="middle">versioning enabled</text>
+  <text x="925" y="292" class="m lbl" text-anchor="middle">public access blocked</text>
+  <text x="925" y="312" class="m lbl" text-anchor="middle">init · plan · apply</text>
+  <text x="925" y="327" class="m lbl" text-anchor="middle">show · output · destroy</text>
+
+  <rect x="832" y="360" width="186" height="96" class="b"/>
+  <text x="925" y="382" class="t h" text-anchor="middle">Helm</text>
+  <text x="925" y="400" class="m lbl" text-anchor="middle">chart wraps every object</text>
+  <text x="925" y="415" class="m lbl" text-anchor="middle">values.yaml parameterised</text>
+  <text x="925" y="430" class="m lbl" text-anchor="middle">install · upgrade</text>
+  <text x="925" y="445" class="m lbl" text-anchor="middle">history · rollback</text>
+
+  <path d="M286 173 L420 173 L420 222" class="e" marker-end="url(#a)"/>
+  <text x="430" y="196" class="m lbl">applies manifests</text>
+
+  <text x="22" y="590" class="m lbl">Flow: code → Git → CI (build, test) → security gates → registry → Argo CD pulls → Kubernetes → monitored.</text>
+  <text x="22" y="606" class="m lbl">Terraform provisions cloud storage out of band; Helm packages the same Kubernetes objects for templated releases.</text>
+  <text x="22" y="628" class="m lbl">Solid arrows = flow of code or traffic · dashed = reference or mount</text>
+
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#6b7785"/>
+    </marker>
+  </defs>
+</svg>

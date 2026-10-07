@@ -1,0 +1,29 @@
+apiVersion: v1
+kind: Namespace
+metadata: {name: taskboard}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata: {name: taskboard-config, namespace: taskboard}
+data:
+  APP_ENV: "production"
+  LOG_LEVEL: "info"
+  APP_OWNER: "Dhruv Davda"
+  APP_ROLL: "24BCS10203"
+---
+# Demo values only - a real deployment uses Sealed Secrets, SOPS or an external
+# store. See the security notes in the README.
+apiVersion: v1
+kind: Secret
+metadata: {name: taskboard-secret, namespace: taskboard}
+type: Opaque
+stringData:
+  API_KEY: "tb_demo_key_24bcs10203_not_a_real_credential"
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata: {name: taskboard-data, namespace: taskboard}
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: standard
+  resources: {requests: {storage: 128Mi}}

@@ -1,0 +1,123 @@
+// Task board API with health probes and Prometheus metrics.
+// Dhruv Davda - 24BCS10203
+const http = require('http');
+const os = require('os');
+const { TaskStore } = require('./store');
+
+const PORT = Number(process.env.PORT || 3000);
+const DATA_DIR = process.env.DATA_DIR || '/data';
+const APP_ENV = process.env.APP_ENV || 'development';
+const VERSION = process.env.APP_VERSION || 'dev';
+// Injected from a Secret. Never logged, never returned.
+const API_KEY = process.env.API_KEY || '';
+
+let ready = false;
+let store;
+
+// Minimal Prometheus metrics, no dependencies.
+const metrics = { requests: 0, errors: 0, byPath: {} };
+
+function record(path, isError) {
+  metrics.requests += 1;
+  if (isError) metrics.errors += 1;
+  metrics.byPath[path] = (metrics.byPath[path] || 0) + 1;
+}
+
+function renderMetrics() {
+  const s = store ? store.stats() : { total: 0, done: 0 };
+  const lines = [
+    '# HELP taskboard_requests_total Total HTTP requests handled.',
+    '# TYPE taskboard_requests_total counter',
+    `taskboard_requests_total ${metrics.requests}`,
+    '# HELP taskboard_errors_total Total HTTP error responses.',
+    '# TYPE taskboard_errors_total counter',
+    `taskboard_errors_total ${metrics.errors}`,
+    '# HELP taskboard_tasks Current number of tasks.',
+    '# TYPE taskboard_tasks gauge',
+    `taskboard_tasks{state="all"} ${s.total}`,
+    `taskboard_tasks{state="done"} ${s.done}`,
+    '# HELP taskboard_up Always 1 when the process is serving.',
+    '# TYPE taskboard_up gauge',
+    'taskboard_up 1',
+  ];
+  return lines.join('\n') + '\n';
+}
+
+const server = http.createServer((req, res) => {
+  const url = new URL(req.url, `http://${req.headers.host}`);
+  const p = url.pathname;
+  const json = (code, body) => {
+    record(p, code >= 400);
+    res.writeHead(code, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(body, null, 2));
+  };
+
+  try {
+    // --- probes -----------------------------------------------------------
+    if (p === '/healthz') {                       // liveness: cheap, always ok
+      return json(200, { status: 'alive' });
+    }
+    if (p === '/readyz') {                        // readiness: only once warm
+      if (!ready) return json(503, { status: 'warming-up' });
+      return json(200, { status: 'ready' });
+    }
+    if (p === '/metrics') {
+      record(p, false);
+      res.writeHead(200, { 'Content-Type': 'text/plain; version=0.0.4' });
+      return res.end(renderMetrics());
+    }
+
+    if (!ready) return json(503, { error: 'not ready' });
+
+    // --- api --------------------------------------------------------------
+    if (p === '/api/tasks' && req.method === 'GET') {
+      return json(200, { tasks: store.list(), ...store.stats() });
+    }
+    if (p === '/api/tasks' && req.method === 'POST') {
+      let body = '';
+      req.on('data', (c) => { body += c; });
+      req.on('end', () => {
+        try {
+          const { title } = JSON.parse(body || '{}');
+          return json(201, store.add(title));
+        } catch (err) {
+          return json(400, { error: err.message });
+        }
+      });
+      return undefined;
+    }
+    if (p.startsWith('/api/tasks/') && req.method === 'POST') {
+      const task = store.complete(p.split('/')[3]);
+      return task ? json(200, task) : json(404, { error: 'no such task' });
+    }
+
+    return json(200, {
+      app: 'taskboard',
+      owner: 'Dhruv Davda',
+      roll: '24BCS10203',
+      group: 'A',
+      env: APP_ENV,
+      version: VERSION,
+      pod: os.hostname(),
+      // Prove the Secret arrived WITHOUT disclosing it.
+      api_key_configured: API_KEY.length > 0,
+      api_key_length: API_KEY.length,
+      tasks: store.stats(),
+      endpoints: ['/healthz', '/readyz', '/metrics', 'GET /api/tasks', 'POST /api/tasks'],
+    });
+  } catch (err) {
+    return json(500, { error: err.message });
+  }
+});
+
+function start() {
+  store = new TaskStore(DATA_DIR);
+  server.listen(PORT, '0.0.0.0', () => {
+    console.log(JSON.stringify({ level: 'info', msg: 'listening', port: PORT, env: APP_ENV, version: VERSION }));
+    // A short warm-up so the startupProbe has something real to cover.
+    setTimeout(() => { ready = true; console.log(JSON.stringify({ level: 'info', msg: 'ready' })); }, 5000);
+  });
+}
+
+if (require.main === module) start();
+module.exports = { server, start };

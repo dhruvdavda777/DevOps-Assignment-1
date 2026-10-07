@@ -1,0 +1,104 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: taskboard
+  namespace: taskboard
+  labels: {app: taskboard}
+spec:
+  replicas: 1
+  # RWO storage: two Pods cannot hold the volume during a rolling update.
+  strategy: {type: Recreate}
+  selector:
+    matchLabels: {app: taskboard}
+  template:
+    metadata:
+      labels: {app: taskboard}
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "3000"
+        prometheus.io/path: "/metrics"
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000           # lets the non-root user write to the PVC
+      containers:
+        - name: app
+          # The cluster's container runtime is separate from the local Docker
+          # daemon in this environment, so the image built by docker/Dockerfile
+          # cannot be side-loaded. The same source is mounted from a ConfigMap
+          # onto the identical base image. See the README for the full note.
+          image: node:22-alpine
+          command: ["node", "/app/server.js"]
+          imagePullPolicy: IfNotPresent
+          ports: [{containerPort: 3000, name: http}]
+          envFrom:
+            - configMapRef: {name: taskboard-config}
+            - secretRef: {name: taskboard-secret}
+          env:
+            - {name: APP_VERSION, value: "1.0.0"}
+          volumeMounts:
+            - {name: data, mountPath: /data}
+            - {name: src, mountPath: /app}
+          resources:
+            requests: {cpu: 50m, memory: 64Mi}
+            limits:   {cpu: 400m, memory: 256Mi}
+          # startupProbe covers the 5s warm-up so liveness cannot kill it.
+          startupProbe:
+            httpGet: {path: /readyz, port: 3000}
+            periodSeconds: 2
+            failureThreshold: 30
+          readinessProbe:
+            httpGet: {path: /readyz, port: 3000}
+            periodSeconds: 5
+          livenessProbe:
+            httpGet: {path: /healthz, port: 3000}
+            periodSeconds: 10
+            failureThreshold: 3
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false
+            capabilities: {drop: ["ALL"]}
+      volumes:
+        - name: data
+          persistentVolumeClaim: {claimName: taskboard-data}
+        - name: src
+          configMap: {name: taskboard-src}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: taskboard
+  namespace: taskboard
+  labels: {app: taskboard}
+spec:
+  selector: {app: taskboard}
+  ports: [{port: 80, targetPort: 3000, name: http}]
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: taskboard
+  namespace: taskboard
+  annotations: {nginx.ingress.kubernetes.io/rewrite-target: /$2}
+spec:
+  ingressClassName: nginx
+  rules:
+    - http:
+        paths:
+          - path: /taskboard(/|$)(.*)
+            pathType: ImplementationSpecific
+            backend: {service: {name: taskboard, port: {number: 80}}}
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata: {name: taskboard, namespace: taskboard}
+spec:
+  scaleTargetRef: {apiVersion: apps/v1, kind: Deployment, name: taskboard}
+  minReplicas: 1
+  maxReplicas: 5
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target: {type: Utilization, averageUtilization: 70}

@@ -1,0 +1,24 @@
+# Prometheus rules for the taskboard app. The app exposes /metrics and the Pod
+# carries prometheus.io/scrape, so Session 20's Prometheus discovers it.
+groups:
+  - name: taskboard
+    rules:
+      - alert: TaskboardDown
+        expr: up{job="kubernetes-pods", namespace="taskboard"} == 0
+        for: 2m
+        labels: {severity: critical}
+        annotations: {summary: "Taskboard has been unreachable for 2 minutes"}
+
+      - alert: TaskboardHighErrorRate
+        # More than 5% of requests returning errors over 5 minutes.
+        expr: |
+          rate(taskboard_errors_total[5m]) / rate(taskboard_requests_total[5m]) > 0.05
+        for: 5m
+        labels: {severity: warning}
+        annotations: {summary: "Taskboard error rate above 5%"}
+
+      - alert: TaskboardHighCPU
+        expr: sum(rate(container_cpu_usage_seconds_total{namespace="taskboard"}[2m])) by (pod) > 0.35
+        for: 3m
+        labels: {severity: warning}
+        annotations: {summary: "Taskboard pod near its CPU limit - HPA should be scaling"}

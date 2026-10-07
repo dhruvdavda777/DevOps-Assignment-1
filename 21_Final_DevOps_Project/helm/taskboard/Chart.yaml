@@ -1,0 +1,6 @@
+apiVersion: v2
+name: taskboard
+description: Final DevOps project - Dhruv Davda 24BCS10203
+type: application
+version: 1.0.0
+appVersion: "1.0.0"
