@@ -1,0 +1,113 @@
+# Eight deliberately broken workloads, one per failure mode.
+# Dhruv Davda - 24BCS10203
+---
+# 1. CrashLoopBackOff - the command exits non-zero every time
+apiVersion: v1
+kind: Pod
+metadata: {name: ts-crashloop, labels: {demo: troubleshooting}}
+spec:
+  containers:
+    - name: app
+      image: busybox:1.36
+      command: ["sh", "-c", "echo 'reading config...'; cat /etc/app/config.yaml; exit 1"]
+---
+# 2. ImagePullBackOff - the tag does not exist
+apiVersion: v1
+kind: Pod
+metadata: {name: ts-imagepull, labels: {demo: troubleshooting}}
+spec:
+  containers:
+    - name: app
+      image: nginx:does-not-exist-9.9.9
+---
+# 3. ErrImagePull - the whole repository does not exist
+apiVersion: v1
+kind: Pod
+metadata: {name: ts-badrepo, labels: {demo: troubleshooting}}
+spec:
+  containers:
+    - name: app
+      image: dhruv24bcs10203/no-such-image:v1
+---
+# 4. Pending - nothing can satisfy the resource request
+apiVersion: v1
+kind: Pod
+metadata: {name: ts-pending, labels: {demo: troubleshooting}}
+spec:
+  containers:
+    - name: app
+      image: nginx:1.27-alpine
+      resources:
+        requests: {cpu: "64", memory: 256Gi}
+---
+# 5. CreateContainerConfigError - references a ConfigMap that does not exist
+apiVersion: v1
+kind: Pod
+metadata: {name: ts-missing-config, labels: {demo: troubleshooting}}
+spec:
+  containers:
+    - name: app
+      image: nginx:1.27-alpine
+      envFrom:
+        - configMapRef: {name: config-that-does-not-exist}
+---
+# 6. Pending forever - mounts a PVC that was never created
+apiVersion: v1
+kind: Pod
+metadata: {name: ts-missing-pvc, labels: {demo: troubleshooting}}
+spec:
+  containers:
+    - name: app
+      image: nginx:1.27-alpine
+      volumeMounts: [{name: data, mountPath: /data}]
+  volumes:
+    - name: data
+      persistentVolumeClaim: {claimName: pvc-that-does-not-exist}
+---
+# 7. OOMKilled - allocates far more than its memory limit
+apiVersion: v1
+kind: Pod
+metadata: {name: ts-oomkill, labels: {demo: troubleshooting}}
+spec:
+  restartPolicy: Never
+  containers:
+    - name: app
+      image: python:3.12-alpine
+      command: ["python", "-c", "x = bytearray(300 * 1024 * 1024); print('allocated')"]
+      resources:
+        limits: {memory: 64Mi}
+        requests: {memory: 64Mi}
+---
+# 8. Service connectivity - the selector matches no Pod
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: ts-app, labels: {demo: troubleshooting}}
+spec:
+  replicas: 2
+  selector:
+    matchLabels: {app: ts-app}
+  template:
+    metadata:
+      labels: {app: ts-app}
+    spec:
+      containers:
+        - name: web
+          image: nginx:1.27-alpine
+          ports: [{containerPort: 80}]
+          resources:
+            requests: {cpu: 10m, memory: 16Mi}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: ts-svc, labels: {demo: troubleshooting}}
+spec:
+  selector: {app: ts-application}     # WRONG: the Pods are labelled app=ts-app
+  ports: [{port: 80, targetPort: 80}]
+---
+# 9. Wrong targetPort - selector is right, port is not
+apiVersion: v1
+kind: Service
+metadata: {name: ts-svc-badport, labels: {demo: troubleshooting}}
+spec:
+  selector: {app: ts-app}
+  ports: [{port: 80, targetPort: 8080}]   # nginx listens on 80, not 8080
