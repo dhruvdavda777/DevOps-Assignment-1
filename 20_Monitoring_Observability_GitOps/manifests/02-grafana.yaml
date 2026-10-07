@@ -1,0 +1,121 @@
+# Grafana, pre-provisioned with Prometheus as a datasource and one dashboard.
+apiVersion: v1
+kind: ConfigMap
+metadata: {name: grafana-datasources, namespace: monitoring}
+data:
+  datasources.yaml: |
+    apiVersion: 1
+    datasources:
+      - name: Prometheus
+        type: prometheus
+        access: proxy
+        url: http://prometheus.monitoring.svc.cluster.local:9090
+        isDefault: true
+---
+apiVersion: v1
+kind: ConfigMap
+metadata: {name: grafana-dashboard-provider, namespace: monitoring}
+data:
+  dashboards.yaml: |
+    apiVersion: 1
+    providers:
+      - name: default
+        folder: ''
+        type: file
+        options: {path: /var/lib/grafana/dashboards}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata: {name: grafana-dashboard, namespace: monitoring}
+data:
+  cluster.json: |
+    {
+      "title": "Cluster Overview - Dhruv Davda 24BCS10203",
+      "uid": "dhruv-cluster",
+      "time": {"from": "now-30m", "to": "now"},
+      "refresh": "10s",
+      "panels": [
+        {
+          "type": "timeseries", "title": "CPU cores by pod",
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
+          "targets": [{"expr": "sum(rate(container_cpu_usage_seconds_total{container!=\"\",pod!=\"\"}[2m])) by (pod)", "legendFormat": "{{pod}}"}]
+        },
+        {
+          "type": "timeseries", "title": "Memory bytes by pod",
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
+          "targets": [{"expr": "sum(container_memory_working_set_bytes{container!=\"\",pod!=\"\"}) by (pod)", "legendFormat": "{{pod}}"}]
+        },
+        {
+          "type": "stat", "title": "Scrape targets up",
+          "gridPos": {"h": 6, "w": 8, "x": 0, "y": 8},
+          "targets": [{"expr": "count(up == 1)"}]
+        },
+        {
+          "type": "stat", "title": "Running pods",
+          "gridPos": {"h": 6, "w": 8, "x": 8, "y": 8},
+          "targets": [{"expr": "count(count by (pod) (container_memory_working_set_bytes{pod!=\"\"}))"}]
+        }
+      ],
+      "schemaVersion": 39
+    }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: grafana, namespace: monitoring}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: grafana}
+  template:
+    metadata:
+      labels: {app: grafana}
+    spec:
+      containers:
+        - name: grafana
+          image: grafana/grafana:11.2.0
+          env:
+            - {name: GF_SECURITY_ADMIN_USER, value: admin}
+            - {name: GF_SECURITY_ADMIN_PASSWORD, value: devops-assignment}
+            - {name: GF_AUTH_ANONYMOUS_ENABLED, value: "true"}
+            - {name: GF_AUTH_ANONYMOUS_ORG_ROLE, value: Viewer}
+          ports: [{containerPort: 3000, name: http}]
+          volumeMounts:
+            - {name: datasources, mountPath: /etc/grafana/provisioning/datasources}
+            - {name: dashprovider, mountPath: /etc/grafana/provisioning/dashboards}
+            - {name: dashboards, mountPath: /var/lib/grafana/dashboards}
+          resources:
+            requests: {cpu: 50m, memory: 128Mi}
+            limits:   {cpu: 300m, memory: 384Mi}
+          readinessProbe:
+            httpGet: {path: /api/health, port: 3000}
+            initialDelaySeconds: 10
+            periodSeconds: 5
+      volumes:
+        - {name: datasources, configMap: {name: grafana-datasources}}
+        - {name: dashprovider, configMap: {name: grafana-dashboard-provider}}
+        - {name: dashboards, configMap: {name: grafana-dashboard}}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: grafana, namespace: monitoring}
+spec:
+  selector: {app: grafana}
+  ports: [{port: 3000, targetPort: 3000, name: http}]
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: monitoring
+  namespace: monitoring
+  annotations: {nginx.ingress.kubernetes.io/rewrite-target: /$2}
+spec:
+  ingressClassName: nginx
+  rules:
+    - http:
+        paths:
+          - path: /grafana(/|$)(.*)
+            pathType: ImplementationSpecific
+            backend: {service: {name: grafana, port: {number: 3000}}}
+          - path: /prom(/|$)(.*)
+            pathType: ImplementationSpecific
+            backend: {service: {name: prometheus, port: {number: 9090}}}
